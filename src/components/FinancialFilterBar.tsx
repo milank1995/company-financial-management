@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Calendar, Search, User, SlidersHorizontal, X, FileSpreadsheet, RefreshCw } from 'lucide-react';
+import { Search, SlidersHorizontal, X, FileSpreadsheet } from 'lucide-react';
 
 interface Partner {
   id: string;

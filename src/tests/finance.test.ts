@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma';
-import { SalaryPaymentSource, PartnerAdjustmentType } from '@prisma/client';
+import { SalaryPaymentSource } from '@prisma/client';
 import {
   getMonthlyFinanceReport,
   getYearlyFinanceReport,
@@ -113,7 +113,7 @@ async function runTests() {
   });
 
   // Salary: $3,000 paid by Partner B on Jan 20 (PARTNER source)
-  const salaryJan = await prisma.employeeSalary.create({
+  await prisma.employeeSalary.create({
     data: {
       companyId,
       employeeId,
