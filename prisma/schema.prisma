@@ -1,0 +1,244 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum SalaryPaymentSource {
+  COMPANY
+  PARTNER
+  CLIENT_DIRECT
+}
+
+enum PartnerAdjustmentType {
+  CREDIT
+  DEBIT
+  LOAN
+  WITHDRAWAL
+  OTHER
+}
+
+model Company {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+  updatedBy String?
+
+  // Relations
+  users             User[]
+  partners          Partner[]
+  ownershipSetups   OwnershipSetup[]
+  projects          Project[]
+  employees         Employee[]
+  projectPayments   ProjectPayment[]
+  employeeSalaries  EmployeeSalary[]
+  companyExpenses   CompanyExpense[]
+  partnerAdjustments PartnerAdjustment[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // Hashed password
+  name      String
+  role      String   @default("ADMIN")
+  companyId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String?
+  updatedBy String?
+
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+}
+
+model Partner {
+  id               String              @id @default(uuid())
+  name             String
+  email            String?
+  isActive         Boolean             @default(true)
+  companyId        String
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  createdBy        String?
+  updatedBy        String?
+  
+  // Relations
+  company          Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  ownerships       PartnerOwnership[]
+  paymentsReceived ProjectPayment[]
+  salariesPaid     EmployeeSalary[]    @relation(name: "SalaryPaidBy")
+  salariesReceived EmployeeSalary[]    @relation(name: "SalaryReceivedBy")
+  expensesPaid     CompanyExpense[]
+  adjustments      PartnerAdjustment[]
+
+  @@unique([companyId, name])
+}
+
+model OwnershipSetup {
+  id            String             @id @default(uuid())
+  effectiveDate DateTime           
+  companyId     String
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  createdBy     String?
+  updatedBy     String?
+  
+  // Relations
+  company       Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  partnerOwnerships PartnerOwnership[]
+
+  @@unique([companyId, effectiveDate])
+}
+
+model PartnerOwnership {
+  id         String         @id @default(uuid())
+  setupId    String
+  partnerId  String
+  percentage Decimal        @db.Decimal(7, 4) // Stores 0.2500 for 25.00%
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  createdBy  String?
+  updatedBy  String?
+
+  setup      OwnershipSetup @relation(fields: [setupId], references: [id], onDelete: Cascade)
+  partner    Partner        @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+
+  @@unique([setupId, partnerId])
+}
+
+model Project {
+  id          String           @id @default(uuid())
+  name        String
+  description String?
+  totalAmount Decimal          @db.Decimal(15, 2)
+  isActive    Boolean          @default(true)
+  companyId   String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  createdBy   String?
+  updatedBy   String?
+
+  company     Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  payments    ProjectPayment[]
+
+  @@unique([companyId, name])
+}
+
+model ProjectPayment {
+  id          String    @id @default(uuid())
+  projectId   String
+  amount      Decimal   @db.Decimal(15, 2)
+  paymentDate DateTime
+  partnerId   String    // Partner who received company money
+  clientName  String?   // Client who paid
+  companyId   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  createdBy   String?
+  updatedBy   String?
+  deletedAt   DateTime? // Soft-delete
+  deletedBy   String?
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  partner     Partner   @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  
+  @@index([companyId, paymentDate])
+  @@index([companyId, partnerId, paymentDate])
+  @@index([companyId, projectId, paymentDate])
+}
+
+model Employee {
+  id        String           @id @default(uuid())
+  name      String
+  email     String?
+  role      String?
+  isActive  Boolean          @default(true)
+  companyId String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  createdBy String?
+  updatedBy String?
+
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  salaries  EmployeeSalary[]
+
+  @@unique([companyId, name])
+}
+
+model EmployeeSalary {
+  id                  String              @id @default(uuid())
+  employeeId          String
+  amount              Decimal             @db.Decimal(15, 2)
+  paymentDate         DateTime
+  paymentSource       SalaryPaymentSource
+  partnerId           String?             // Partner who paid (only if source is PARTNER)
+  clientName          String?             // Client who paid (only if source is CLIENT_DIRECT)
+  receivedByPartnerId String?             // Partner who received the client's direct payment (only if source is CLIENT_DIRECT, optional)
+  companyId           String
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  createdBy           String?
+  updatedBy           String?
+  deletedAt           DateTime?           // Soft-delete
+  deletedBy           String?
+
+  employee            Employee            @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  partner             Partner?            @relation(name: "SalaryPaidBy", fields: [partnerId], references: [id], onDelete: Restrict)
+  receivedByPartner   Partner?            @relation(name: "SalaryReceivedBy", fields: [receivedByPartnerId], references: [id], onDelete: Restrict)
+  company             Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, paymentDate])
+  @@index([companyId, partnerId, paymentDate])
+  @@index([companyId, employeeId, paymentDate])
+  @@index([companyId, receivedByPartnerId, paymentDate])
+}
+
+model CompanyExpense {
+  id          String    @id @default(uuid())
+  amount      Decimal   @db.Decimal(15, 2)
+  category    String    // Office, software, utility, travel, marketing etc.
+  expenseDate DateTime
+  description String
+  partnerId   String    // Partner who paid the expense personally
+  companyId   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  createdBy   String?
+  updatedBy   String?
+  deletedAt   DateTime? // Soft-delete
+  deletedBy   String?
+
+  partner     Partner   @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, expenseDate])
+  @@index([companyId, partnerId, expenseDate])
+}
+
+model PartnerAdjustment {
+  id             String                @id @default(uuid())
+  partnerId      String
+  amount         Decimal               @db.Decimal(15, 2) // Positive for Credits/Loans, Negative for Debits/Withdrawals
+  type           PartnerAdjustmentType
+  adjustmentDate DateTime
+  description    String
+  companyId      String
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?             // Soft-delete
+  deletedBy      String?
+
+  partner        Partner               @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  company        Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, adjustmentDate])
+  @@index([companyId, partnerId, adjustmentDate])
+}

@@ -1,0 +1,53 @@
+import { prisma } from '@/lib/prisma';
+import { checkAuth } from '@/lib/auth';
+import { NextResponse } from 'next/server';
+
+export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await checkAuth(req);
+  if (!auth.authenticated) return auth.response!;
+  const user = auth.user!;
+  const { id } = await params;
+
+  try {
+    const { name, email, role, isActive } = await req.json();
+
+    const employee = await prisma.employee.update({
+      where: { id, companyId: user.companyId },
+      data: {
+        name,
+        email: email || null,
+        role: role || null,
+        isActive: isActive !== undefined ? isActive : true,
+        updatedBy: user.userId,
+      },
+    });
+
+    return NextResponse.json(employee);
+  } catch (error) {
+    console.error('Update employee error:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await checkAuth(req);
+  if (!auth.authenticated) return auth.response!;
+  const user = auth.user!;
+  const { id } = await params;
+
+  try {
+    await prisma.employee.delete({
+      where: { id, companyId: user.companyId },
+    });
+    return NextResponse.json({ message: 'Employee deleted successfully' });
+  } catch (error: any) {
+    console.error('Delete employee error:', error);
+    if (error.code === 'P2003') {
+      return NextResponse.json(
+        { error: 'Cannot delete employee because they have historical salary records. Please deactivate them instead.' },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
