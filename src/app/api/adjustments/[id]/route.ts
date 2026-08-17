@@ -9,7 +9,21 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
 
   try {
-    const { partnerId, amount, type, adjustmentDate, description } = await req.json();
+    const { partnerId, amount, type, adjustmentDate, description, applicableMonth, applicableYear } = await req.json();
+
+    // Resolve target accounting period
+    let resolvedMonth = applicableMonth !== undefined ? Number(applicableMonth) : undefined;
+    let resolvedYear = applicableYear !== undefined ? Number(applicableYear) : undefined;
+
+    if (resolvedMonth === undefined || resolvedYear === undefined) {
+      if (adjustmentDate) {
+        const parsedDate = new Date(adjustmentDate);
+        if (!isNaN(parsedDate.getTime())) {
+          if (resolvedMonth === undefined) resolvedMonth = parsedDate.getMonth() + 1;
+          if (resolvedYear === undefined) resolvedYear = parsedDate.getFullYear();
+        }
+      }
+    }
 
     const adjustment = await prisma.partnerAdjustment.update({
       where: { id, companyId: user.companyId },
@@ -18,6 +32,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         amount: amount !== undefined ? Number(amount) : undefined,
         type,
         adjustmentDate: adjustmentDate ? new Date(adjustmentDate) : undefined,
+        applicableMonth: resolvedMonth,
+        applicableYear: resolvedYear,
         description,
         updatedBy: user.userId,
       },

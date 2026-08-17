@@ -95,6 +95,8 @@ function EmployeesContent() {
   const [salaryPartnerId, setSalaryPartnerId] = useState('');
   const [salaryAmount, setSalaryAmount] = useState('');
   const [salaryDate, setSalaryDate] = useState('');
+  const [salaryPeriodMonth, setSalaryPeriodMonth] = useState(new Date().getMonth() + 1);
+  const [salaryPeriodYear, setSalaryPeriodYear] = useState(new Date().getFullYear());
   
   // Conditional Salary payment source states
   const [salaryPaymentSource, setSalaryPaymentSource] = useState<'COMPANY' | 'PARTNER' | 'CLIENT_DIRECT'>('COMPANY');
@@ -313,6 +315,8 @@ function EmployeesContent() {
         salaryPaymentSource === 'CLIENT_DIRECT' && salaryReceivedByPartnerId
           ? salaryReceivedByPartnerId
           : null,
+      applicableMonth: salaryPeriodMonth,
+      applicableYear: salaryPeriodYear,
     };
 
     try {
@@ -342,6 +346,8 @@ function EmployeesContent() {
     setSalaryPartnerId('');
     setSalaryAmount('');
     setSalaryDate('');
+    setSalaryPeriodMonth(new Date().getMonth() + 1);
+    setSalaryPeriodYear(new Date().getFullYear());
     setSalaryPaymentSource('COMPANY');
     setSalaryClientName('');
     setSalaryReceivedByPartnerId('');
@@ -358,12 +364,14 @@ function EmployeesContent() {
     setShowSalaryModal(true);
   };
 
-  const openEditSalary = (sal: Salary) => {
+  const openEditSalary = (sal: any) => {
     setSalaryIdToEdit(sal.id);
     setSalaryEmployeeId(sal.employeeId);
     setSalaryAmount(Number(sal.amount).toString());
     const dateStr = new Date(sal.paymentDate).toISOString().split('T')[0];
     setSalaryDate(dateStr);
+    setSalaryPeriodMonth(sal.applicableMonth ?? (new Date(sal.paymentDate).getMonth() + 1));
+    setSalaryPeriodYear(sal.applicableYear ?? new Date(sal.paymentDate).getFullYear());
     
     setSalaryPaymentSource(sal.paymentSource);
     const activeParts = partnersList.filter(p => p.isActive);
@@ -551,6 +559,7 @@ function EmployeesContent() {
                   <thead>
                     <tr className="text-slate-400 text-left font-semibold">
                       <th className="pb-3 pr-4">Date</th>
+                      <th className="pb-3 px-4">Period</th>
                       <th className="pb-3 px-4">Employee</th>
                       <th className="pb-3 px-4">Source</th>
                       <th className="pb-3 px-4">Paid By</th>
@@ -563,15 +572,18 @@ function EmployeesContent() {
                   <tbody className="divide-y divide-slate-800">
                     {salaries.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-8 text-center text-slate-400">
+                        <td colSpan={9} className="py-8 text-center text-slate-400">
                           No salary payments match your filter settings.
                         </td>
                       </tr>
                     ) : (
-                      salaries.map((sal) => (
+                      salaries.map((sal: any) => (
                         <tr key={sal.id} className="text-slate-300 hover:bg-slate-800/10">
                           <td className="py-4 pr-4 font-mono text-xs text-slate-400">
                             {formatDate(sal.paymentDate)}
+                          </td>
+                          <td className="py-4 px-4 font-mono text-xs text-slate-300">
+                            {sal.applicableMonth ? `${sal.applicableMonth.toString().padStart(2, '0')}/${sal.applicableYear}` : 'N/A'}
                           </td>
                           <td className="py-4 px-4 font-semibold text-white">{sal.employee.name}</td>
                           <td className="py-4 px-4">
@@ -818,6 +830,37 @@ function EmployeesContent() {
                     onChange={(e) => setSalaryDate(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-700 bg-slate-900 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Accounting Month</label>
+                    <select
+                      value={salaryPeriodMonth}
+                      onChange={(e) => setSalaryPeriodMonth(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-2 border border-slate-700 bg-slate-900 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                        <option key={m} value={m}>
+                          {new Date(2000, m - 1).toLocaleString('en-US', { month: 'long' })}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Accounting Year</label>
+                    <select
+                      value={salaryPeriodYear}
+                      onChange={(e) => setSalaryPeriodYear(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-2 border border-slate-700 bg-slate-900 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="flex justify-end space-x-3 pt-2">

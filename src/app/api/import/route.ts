@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { checkAuth } from '@/lib/auth';
 import { SalaryPaymentSource } from '@prisma/client';
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 
 // Robust client-side safe CSV parser handling quotes
 export function parseCSV(text: string): string[][] {
@@ -73,6 +74,7 @@ export async function POST(req: Request) {
 
     const validationErrors: string[] = [];
     const parsedRecords: any[] = [];
+    let skippedCount = 0;
 
     // Helper to get index of header
     const getIndex = (headerNames: string[]) => {
@@ -82,6 +84,79 @@ export async function POST(req: Request) {
       }
       return -1;
     };
+
+    const idxMonth = getIndex(['accounting month', 'work month', 'period month', 'month']);
+    const idxYear = getIndex(['accounting year', 'work year', 'period year', 'year']);
+    const idxPeriod = getIndex(['accounting period', 'applicable period', 'period', 'work period']);
+
+    const parseRowPeriod = (row: string[], dateVal: string) => {
+      let rowMonth = idxMonth !== -1 ? parseInt(row[idxMonth], 10) : NaN;
+      let rowYear = idxYear !== -1 ? parseInt(row[idxYear], 10) : NaN;
+
+      if (idxPeriod !== -1 && row[idxPeriod]) {
+        const parts = row[idxPeriod].split(/[-/]/);
+        if (parts.length === 2) {
+          const m = parseInt(parts[0], 10);
+          const y = parseInt(parts[1], 10);
+          if (!isNaN(m) && !isNaN(y)) {
+            if (m >= 1 && m <= 12) {
+              rowMonth = m;
+              rowYear = y;
+            } else if (y >= 1 && y <= 12) {
+              rowMonth = y;
+              rowYear = m;
+            }
+          }
+        }
+      }
+
+      if (isNaN(rowMonth) || isNaN(rowYear)) {
+        const parsedDate = new Date(dateVal);
+        if (!isNaN(parsedDate.getTime())) {
+          rowMonth = parsedDate.getMonth() + 1;
+          rowYear = parsedDate.getFullYear();
+        } else {
+          rowMonth = 1;
+          rowYear = 2026;
+        }
+      }
+
+      return { month: rowMonth, year: rowYear };
+    };
+
+    // Load existing records to deduplicate
+    const existingSalaryKeys = new Set<string>();
+    const existingPaymentKeys = new Set<string>();
+    const existingExpenseKeys = new Set<string>();
+
+    if (importType === 'salaries') {
+      const salaries = await prisma.employeeSalary.findMany({
+        where: { companyId: user.companyId, deletedAt: null },
+        select: { employeeId: true, amount: true, applicableYear: true, applicableMonth: true, paymentSource: true }
+      });
+      salaries.forEach(s => {
+        const amt = typeof s.amount === 'number' ? s.amount : Number(s.amount);
+        existingSalaryKeys.add(`${s.employeeId}_${amt.toFixed(2)}_${s.applicableYear}_${s.applicableMonth}_${s.paymentSource}`);
+      });
+    } else if (importType === 'payments') {
+      const payments = await prisma.projectPayment.findMany({
+        where: { companyId: user.companyId, deletedAt: null },
+        select: { projectId: true, amount: true, applicableYear: true, applicableMonth: true, partnerId: true }
+      });
+      payments.forEach(p => {
+        const amt = typeof p.amount === 'number' ? p.amount : Number(p.amount);
+        existingPaymentKeys.add(`${p.projectId}_${amt.toFixed(2)}_${p.applicableYear}_${p.applicableMonth}_${p.partnerId}`);
+      });
+    } else if (importType === 'expenses') {
+      const expenses = await prisma.companyExpense.findMany({
+        where: { companyId: user.companyId, deletedAt: null },
+        select: { amount: true, category: true, description: true, partnerId: true, applicableYear: true, applicableMonth: true }
+      });
+      expenses.forEach(e => {
+        const amt = typeof e.amount === 'number' ? e.amount : Number(e.amount);
+        existingExpenseKeys.add(`${e.applicableYear}_${e.applicableMonth}_${amt.toFixed(2)}_${e.category.toLowerCase().trim()}_${e.description.toLowerCase().trim()}_${e.partnerId}`);
+      });
+    }
 
     if (importType === 'salaries') {
       const idxDate = getIndex(['date', 'payment date']);
@@ -151,17 +226,26 @@ export async function POST(req: Request) {
         }
 
         if (validationErrors.length === 0) {
-          parsedRecords.push({
-            employeeId: empId,
-            amount,
-            paymentDate: new Date(dateVal),
-            paymentSource: sourceVal as SalaryPaymentSource,
-            partnerId,
-            clientName: clientName || null,
-            receivedByPartnerId,
-            companyId: user.companyId,
-            createdBy: user.userId,
-          });
+          const { month: rowMonth, year: rowYear } = parseRowPeriod(row, dateVal);
+          const rowKey = `${empId}_${amount.toFixed(2)}_${rowYear}_${rowMonth}_${sourceVal}`;
+          if (existingSalaryKeys.has(rowKey)) {
+            skippedCount++;
+          } else {
+            parsedRecords.push({
+              id: crypto.randomUUID(),
+              employeeId: empId,
+              amount,
+              paymentDate: new Date(dateVal),
+              applicableMonth: rowMonth,
+              applicableYear: rowYear,
+              paymentSource: sourceVal as SalaryPaymentSource,
+              partnerId,
+              clientName: clientName || null,
+              receivedByPartnerId,
+              companyId: user.companyId,
+              createdBy: user.userId,
+            });
+          }
         }
       });
     }
@@ -205,15 +289,24 @@ export async function POST(req: Request) {
         }
 
         if (validationErrors.length === 0) {
-          parsedRecords.push({
-            projectId,
-            amount,
-            paymentDate: new Date(dateVal),
-            partnerId,
-            clientName: clientVal || null,
-            companyId: user.companyId,
-            createdBy: user.userId,
-          });
+          const { month: rowMonth, year: rowYear } = parseRowPeriod(row, dateVal);
+          const rowKey = `${projectId}_${amount.toFixed(2)}_${rowYear}_${rowMonth}_${partnerId}`;
+          if (existingPaymentKeys.has(rowKey)) {
+            skippedCount++;
+          } else {
+            parsedRecords.push({
+              id: crypto.randomUUID(),
+              projectId,
+              amount,
+              paymentDate: new Date(dateVal),
+              applicableMonth: rowMonth,
+              applicableYear: rowYear,
+              partnerId,
+              clientName: clientVal || null,
+              companyId: user.companyId,
+              createdBy: user.userId,
+            });
+          }
         }
       });
     }
@@ -260,15 +353,24 @@ export async function POST(req: Request) {
         }
 
         if (validationErrors.length === 0) {
-          parsedRecords.push({
-            description: descVal,
-            category: catVal,
-            amount,
-            expenseDate: new Date(dateVal),
-            partnerId,
-            companyId: user.companyId,
-            createdBy: user.userId,
-          });
+          const { month: rowMonth, year: rowYear } = parseRowPeriod(row, dateVal);
+          const rowKey = `${rowYear}_${rowMonth}_${amount.toFixed(2)}_${catVal.toLowerCase().trim()}_${descVal.toLowerCase().trim()}_${partnerId}`;
+          if (existingExpenseKeys.has(rowKey)) {
+            skippedCount++;
+          } else {
+            parsedRecords.push({
+              id: crypto.randomUUID(),
+              description: descVal,
+              category: catVal,
+              amount,
+              expenseDate: new Date(dateVal),
+              applicableMonth: rowMonth,
+              applicableYear: rowYear,
+              partnerId,
+              companyId: user.companyId,
+              createdBy: user.userId,
+            });
+          }
         }
       });
     }
@@ -278,24 +380,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Validation Failed', details: validationErrors }, { status: 400 });
     }
 
-    // Write all records in a single Prisma transaction for safety
-    await prisma.$transaction(async (tx) => {
-      if (importType === 'salaries') {
-        for (const record of parsedRecords) {
-          await tx.employeeSalary.create({ data: record });
+    // Write all records in a single batch query for optimal speed and transaction safety
+    if (parsedRecords.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        if (importType === 'salaries') {
+          await tx.employeeSalary.createMany({ data: parsedRecords });
+        } else if (importType === 'payments') {
+          await tx.projectPayment.createMany({ data: parsedRecords });
+        } else if (importType === 'expenses') {
+          await tx.companyExpense.createMany({ data: parsedRecords });
         }
-      } else if (importType === 'payments') {
-        for (const record of parsedRecords) {
-          await tx.projectPayment.create({ data: record });
-        }
-      } else if (importType === 'expenses') {
-        for (const record of parsedRecords) {
-          await tx.companyExpense.create({ data: record });
-        }
-      }
-    });
+      });
+    }
 
-    return NextResponse.json({ success: true, count: parsedRecords.length });
+    return NextResponse.json({ success: true, count: parsedRecords.length, skipped: skippedCount });
   } catch (error: any) {
     console.error('Import CSV error:', error);
     return NextResponse.json({ error: 'Internal Server Error', details: error.message }, { status: 500 });

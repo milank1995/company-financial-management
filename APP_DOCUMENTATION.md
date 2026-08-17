@@ -34,7 +34,8 @@ Key architectural characteristics include:
 ### C. Projects & Payments
 * **Project Directory**: Tracks client projects, contract budgets, and status (Active/Archived).
 * **Payment Inflows**: Records payments made by clients. Each payment tracks:
-  * Payment Date
+  * Payment Date (actual calendar cashflow execution date)
+  * Accounting Period (billing/accrual target Month and Year in `MM-YYYY` format)
   * Client Name
   * Project ID
   * **Recipient Partner**: The partner who received the funds. This is tracked as company money held by the partner.
@@ -104,7 +105,8 @@ Ledger pages (Salaries, Project Payments, and Expenses) contain a unified filter
 
 ### C. CSV File Upload & Bulk Data Import
 Allows users to upload transaction sheets in bulk:
-* **Header Mapping**: Standard CSV column headers are parsed case-insensitively.
+* **Header Mapping**: Standard CSV column headers are parsed case-insensitively. Supports an optional `Accounting Period` column in `MM-YYYY` format (e.g. `08-2026`). If missing, the period is extracted from the row's date.
+* **Automatic Deduplication**: The import engine dynamically matches spreadsheet rows against existing database records using composite keys. Duplicate rows are skipped automatically, and the UI displays the count of imported vs skipped items.
 * **Entity Resolution**: Spreadsheet names (Employee Name, Partner Name, Project Name) are matched case-insensitively to database UUIDs.
 * **Validation Engine**: Validates number formats (ignores commas like `135,000.00`), date formats, and values.
 * **Anomalies Report**: Returns line-by-line validation errors if matching entities are not found.
@@ -117,22 +119,22 @@ Allows users to upload transaction sheets in bulk:
 Composite indexes have been created on foreign keys and transaction date fields to ensure queries scale efficiently:
 ```prisma
 // Project Payments
-@@index([companyId, paymentDate])
-@@index([companyId, partnerId, paymentDate])
-@@index([companyId, projectId, paymentDate])
+@@index([companyId, applicableYear, applicableMonth])
+@@index([companyId, partnerId, applicableYear, applicableMonth])
+@@index([companyId, projectId, applicableYear, applicableMonth])
 
 // Employee Salaries
-@@index([companyId, paymentDate])
-@@index([companyId, partnerId, paymentDate])
-@@index([companyId, employeeId, paymentDate])
-@@index([companyId, receivedByPartnerId, paymentDate])
+@@index([companyId, applicableYear, applicableMonth])
+@@index([companyId, partnerId, applicableYear, applicableMonth])
+@@index([companyId, employeeId, applicableYear, applicableMonth])
+@@index([companyId, receivedByPartnerId, applicableYear, applicableMonth])
 
 // Company Expenses
-@@index([companyId, expenseDate])
-@@index([companyId, partnerId, expenseDate])
+@@index([companyId, applicableYear, applicableMonth])
+@@index([companyId, partnerId, applicableYear, applicableMonth])
 
 // Partner Adjustments
-@@index([companyId, adjustmentDate])
-@@index([companyId, partnerId, adjustmentDate])
+@@index([companyId, applicableYear, applicableMonth])
+@@index([companyId, partnerId, applicableYear, applicableMonth])
 ```
-These indexes speed up range queries, partner filtering, and monthly/yearly aggregations.
+These indexes speed up period queries, partner filtering, and monthly/yearly aggregations.

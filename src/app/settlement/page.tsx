@@ -26,7 +26,8 @@ export default function SettlementPage() {
   const { user } = useAuth();
   const [viewType, setViewType] = useState<'monthly' | 'yearly'>('monthly');
   const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [selectedMonth, setSelectedMonth] = useState<number>(8); // August
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([8]); // August
+  const [monthsDropdownOpen, setMonthsDropdownOpen] = useState(false);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -47,12 +48,23 @@ export default function SettlementPage() {
     { value: 12, label: 'December' },
   ];
 
+  const toggleMonth = (mVal: number) => {
+    setSelectedMonths((prev) => {
+      if (prev.includes(mVal)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((m) => m !== mVal);
+      } else {
+        return [...prev, mVal].sort((a, b) => a - b);
+      }
+    });
+  };
+
   const fetchData = async () => {
     setLoading(true);
     setError('');
     const url =
       viewType === 'monthly'
-        ? `/api/dashboard/monthly?year=${selectedYear}&month=${selectedMonth}`
+        ? `/api/dashboard/monthly?year=${selectedYear}&month=${selectedMonths.join(',')}`
         : `/api/dashboard/yearly?year=${selectedYear}`;
 
     try {
@@ -71,7 +83,7 @@ export default function SettlementPage() {
     if (user) {
       fetchData();
     }
-  }, [user, viewType, selectedYear, selectedMonth]);
+  }, [user, viewType, selectedYear, selectedMonths]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
@@ -86,7 +98,7 @@ export default function SettlementPage() {
             <h1 className="text-3xl font-bold tracking-tight text-white">Partner Settlement</h1>
             <p className="text-slate-400 mt-1">
               {viewType === 'monthly'
-                ? `Calculated net balances for ${months.find((m) => m.value === selectedMonth)?.label} ${selectedYear}`
+                ? `Calculated net balances for ${selectedMonths.length === 12 ? 'Year' : selectedMonths.map(m => months.find(mo => mo.value === m)?.label.substring(0, 3)).join(', ')} ${selectedYear}`
                 : `Aggregated year-to-date settlements for ${selectedYear}`}
             </p>
           </div>
@@ -134,19 +146,64 @@ export default function SettlementPage() {
 
             {/* Month Selector (only for monthly view) */}
             {viewType === 'monthly' && (
-              <div className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-2 py-1">
-                <CalendarDays className="h-4 w-4 text-slate-400" />
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
-                  className="bg-transparent text-white text-sm focus:outline-none border-none pr-6 py-1"
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMonthsDropdownOpen(!monthsDropdownOpen)}
+                  className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-white text-sm hover:bg-[#1e293b] transition-colors"
                 >
-                  {months.map((m) => (
-                    <option key={m.value} value={m.value} className="bg-[#0f172a] text-white">
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
+                  <CalendarDays className="h-4 w-4 text-slate-400" />
+                  <span>
+                    {selectedMonths.length === 12
+                      ? 'All Months'
+                      : selectedMonths.length === 0
+                      ? 'Select Month'
+                      : selectedMonths.map((m) => months.find((mo) => mo.value === m)?.label.substring(0, 3)).join(', ')}
+                  </span>
+                </button>
+
+                {monthsDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setMonthsDropdownOpen(false)} />
+                    <div className="absolute right-0 mt-2 w-48 bg-[#0b0f19] border border-slate-800 rounded-xl shadow-xl z-20 p-3 space-y-2">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Months</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (selectedMonths.length === 12) {
+                              setSelectedMonths([new Date().getMonth() + 1]);
+                            } else {
+                              setSelectedMonths([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+                            }
+                          }}
+                          className="text-[10px] text-cyan-400 hover:text-cyan-300 font-medium"
+                        >
+                          {selectedMonths.length === 12 ? 'Clear All' : 'Select All'}
+                        </button>
+                      </div>
+                      <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+                        {months.map((m) => {
+                          const isChecked = selectedMonths.includes(m.value);
+                          return (
+                            <label
+                              key={m.value}
+                              className="flex items-center space-x-2 text-sm text-slate-355 hover:text-white cursor-pointer select-none py-0.5"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => toggleMonth(m.value)}
+                                className="rounded border-slate-800 bg-slate-900 text-cyan-500 focus:ring-cyan-500/25 h-4 w-4"
+                              />
+                              <span>{m.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

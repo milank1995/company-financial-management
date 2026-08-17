@@ -90,6 +90,8 @@ function ProjectsContent() {
   const [paymentPartnerId, setPaymentPartnerId] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState('');
+  const [paymentPeriodMonth, setPaymentPeriodMonth] = useState(new Date().getMonth() + 1);
+  const [paymentPeriodYear, setPaymentPeriodYear] = useState(new Date().getFullYear());
   const [paymentClientName, setPaymentClientName] = useState('');
 
   // Update URL parameters
@@ -291,6 +293,8 @@ function ProjectsContent() {
           amount: parseFloat(paymentAmount),
           paymentDate,
           clientName: paymentClientName,
+          applicableMonth: paymentPeriodMonth,
+          applicableYear: paymentPeriodYear,
         }),
       });
 
@@ -311,6 +315,8 @@ function ProjectsContent() {
     setPaymentPartnerId('');
     setPaymentAmount('');
     setPaymentDate('');
+    setPaymentPeriodMonth(new Date().getMonth() + 1);
+    setPaymentPeriodYear(new Date().getFullYear());
     setPaymentClientName('');
   };
 
@@ -322,13 +328,15 @@ function ProjectsContent() {
     setShowPaymentModal(true);
   };
 
-  const openEditPayment = (pay: Payment) => {
+  const openEditPayment = (pay: any) => {
     setPaymentIdToEdit(pay.id);
     setPaymentProjectId(pay.projectId);
     setPaymentPartnerId(pay.partnerId);
     setPaymentAmount(Number(pay.amount).toString());
     const dateStr = new Date(pay.paymentDate).toISOString().split('T')[0];
     setPaymentDate(dateStr);
+    setPaymentPeriodMonth(pay.applicableMonth ?? (new Date(pay.paymentDate).getMonth() + 1));
+    setPaymentPeriodYear(pay.applicableYear ?? new Date(pay.paymentDate).getFullYear());
     setPaymentClientName(pay.clientName || '');
     setShowPaymentModal(true);
   };
@@ -510,6 +518,7 @@ function ProjectsContent() {
                   <thead>
                     <tr className="text-slate-400 text-left font-semibold">
                       <th className="pb-3 pr-4">Date</th>
+                      <th className="pb-3 px-4">Period</th>
                       <th className="pb-3 px-4">Project</th>
                       <th className="pb-3 px-4">Client</th>
                       <th className="pb-3 px-4">Received By Partner</th>
@@ -520,15 +529,18 @@ function ProjectsContent() {
                   <tbody className="divide-y divide-slate-800">
                     {payments.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                        <td colSpan={7} className="py-8 text-center text-slate-400">
                           No payments match your filter settings.
                         </td>
                       </tr>
                     ) : (
-                      payments.map((pay) => (
+                      payments.map((pay: any) => (
                         <tr key={pay.id} className="text-slate-300 hover:bg-slate-800/10">
                           <td className="py-4 pr-4 font-mono text-xs text-slate-400">
                             {formatDate(pay.paymentDate)}
+                          </td>
+                          <td className="py-4 px-4 font-mono text-xs text-slate-300">
+                            {pay.applicableMonth ? `${pay.applicableMonth.toString().padStart(2, '0')}/${pay.applicableYear}` : 'N/A'}
                           </td>
                           <td className="py-4 px-4 font-semibold text-white">{pay.project.name}</td>
                           <td className="py-4 px-4 text-slate-300">{pay.clientName || 'N/A'}</td>
@@ -733,6 +745,37 @@ function ProjectsContent() {
                     onChange={(e) => setPaymentDate(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-700 bg-slate-900 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Accounting Month</label>
+                    <select
+                      value={paymentPeriodMonth}
+                      onChange={(e) => setPaymentPeriodMonth(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-2 border border-slate-700 bg-slate-900 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                        <option key={m} value={m}>
+                          {new Date(2000, m - 1).toLocaleString('en-US', { month: 'long' })}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Accounting Year</label>
+                    <select
+                      value={paymentPeriodYear}
+                      onChange={(e) => setPaymentPeriodYear(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-2 border border-slate-700 bg-slate-900 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="flex justify-end space-x-3 pt-2">

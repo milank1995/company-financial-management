@@ -19,9 +19,9 @@ export default function CSVImportModal({ type, onClose, onSuccess }: CSVImportMo
 
   // Template columns info to guide user
   const headersMap = {
-    salaries: ['Date (YYYY-MM-DD)', 'Employee Name', 'Amount', 'Payment Source (COMPANY / PARTNER / CLIENT_DIRECT)', 'Paid By Partner', 'Client Name', 'Received By Partner'],
-    payments: ['Date (YYYY-MM-DD)', 'Project Name', 'Client Name', 'Amount', 'Received By Partner'],
-    expenses: ['Date (YYYY-MM-DD)', 'Description', 'Category', 'Amount', 'Paid By Partner'],
+    salaries: ['Date (YYYY-MM-DD)', 'Accounting Period (MM-YYYY)', 'Employee Name', 'Amount', 'Payment Source (COMPANY / PARTNER / CLIENT_DIRECT)', 'Paid By Partner', 'Client Name', 'Received By Partner'],
+    payments: ['Date (YYYY-MM-DD)', 'Accounting Period (MM-YYYY)', 'Project Name', 'Client Name', 'Amount', 'Received By Partner'],
+    expenses: ['Date (YYYY-MM-DD)', 'Accounting Period (MM-YYYY)', 'Description', 'Category', 'Amount', 'Paid By Partner'],
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

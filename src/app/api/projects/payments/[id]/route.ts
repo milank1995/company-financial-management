@@ -9,7 +9,21 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
 
   try {
-    const { amount, paymentDate, partnerId, projectId } = await req.json();
+    const { amount, paymentDate, partnerId, projectId, applicableMonth, applicableYear } = await req.json();
+
+    // Resolve target accounting period
+    let resolvedMonth = applicableMonth !== undefined ? Number(applicableMonth) : undefined;
+    let resolvedYear = applicableYear !== undefined ? Number(applicableYear) : undefined;
+
+    if (resolvedMonth === undefined || resolvedYear === undefined) {
+      if (paymentDate) {
+        const parsedDate = new Date(paymentDate);
+        if (!isNaN(parsedDate.getTime())) {
+          if (resolvedMonth === undefined) resolvedMonth = parsedDate.getMonth() + 1;
+          if (resolvedYear === undefined) resolvedYear = parsedDate.getFullYear();
+        }
+      }
+    }
 
     const payment = await prisma.projectPayment.update({
       where: { id, companyId: user.companyId },
@@ -17,6 +31,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         projectId,
         amount: amount !== undefined ? Number(amount) : undefined,
         paymentDate: paymentDate ? new Date(paymentDate) : undefined,
+        applicableMonth: resolvedMonth,
+        applicableYear: resolvedYear,
         partnerId,
         updatedBy: user.userId,
       },

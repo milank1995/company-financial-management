@@ -10,6 +10,7 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const yearStr = searchParams.get('year');
+    const partnerId = searchParams.get('partnerId') || undefined;
 
     const now = new Date();
     const year = yearStr ? parseInt(yearStr, 10) : now.getFullYear();
@@ -18,7 +19,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Invalid year parameter' }, { status: 400 });
     }
 
-    const report = await getYearlyFinanceReport(user.companyId, year);
+    const report = await getYearlyFinanceReport(user.companyId, year, partnerId);
     return NextResponse.json(report);
   } catch (error) {
     console.error('Fetch yearly dashboard error:', error);

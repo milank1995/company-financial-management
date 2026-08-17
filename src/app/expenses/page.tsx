@@ -73,6 +73,8 @@ function ExpensesContent() {
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseCategory, setExpenseCategory] = useState('Office');
   const [expenseDate, setExpenseDate] = useState('');
+  const [expensePeriodMonth, setExpensePeriodMonth] = useState(new Date().getMonth() + 1);
+  const [expensePeriodYear, setExpensePeriodYear] = useState(new Date().getFullYear());
   const [expenseDesc, setExpenseDesc] = useState('');
   const [expensePartnerId, setExpensePartnerId] = useState('');
 
@@ -208,6 +210,8 @@ function ExpensesContent() {
           expenseDate,
           description: expenseDesc,
           partnerId: expensePartnerId,
+          applicableMonth: expensePeriodMonth,
+          applicableYear: expensePeriodYear,
         }),
       });
 
@@ -227,6 +231,8 @@ function ExpensesContent() {
     setExpenseAmount('');
     setExpenseCategory('Office');
     setExpenseDate('');
+    setExpensePeriodMonth(new Date().getMonth() + 1);
+    setExpensePeriodYear(new Date().getFullYear());
     setExpenseDesc('');
     setExpensePartnerId('');
   };
@@ -238,12 +244,14 @@ function ExpensesContent() {
     setShowModal(true);
   };
 
-  const openEditExpense = (exp: Expense) => {
+  const openEditExpense = (exp: any) => {
     setExpenseIdToEdit(exp.id);
     setExpenseAmount(Number(exp.amount).toString());
     setExpenseCategory(exp.category);
     const dateStr = new Date(exp.expenseDate).toISOString().split('T')[0];
     setExpenseDate(dateStr);
+    setExpensePeriodMonth(exp.applicableMonth ?? (new Date(exp.expenseDate).getMonth() + 1));
+    setExpensePeriodYear(exp.applicableYear ?? new Date(exp.expenseDate).getFullYear());
     setExpenseDesc(exp.description);
     setExpensePartnerId(exp.partnerId);
     setShowModal(true);
@@ -373,6 +381,7 @@ function ExpensesContent() {
                 <thead>
                   <tr className="text-slate-400 text-left font-semibold">
                     <th className="pb-3 pr-4">Date</th>
+                    <th className="pb-3 px-4">Period</th>
                     <th className="pb-3 px-4">Description</th>
                     <th className="pb-3 px-4">Category</th>
                     <th className="pb-3 px-4">Paid By Partner</th>
@@ -383,15 +392,18 @@ function ExpensesContent() {
                 <tbody className="divide-y divide-slate-800">
                   {expenses.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400">
+                      <td colSpan={7} className="py-8 text-center text-slate-400">
                         No company expenses match your filters.
                       </td>
                     </tr>
                   ) : (
-                    expenses.map((exp) => (
+                    expenses.map((exp: any) => (
                       <tr key={exp.id} className="text-slate-300 hover:bg-slate-800/10">
                         <td className="py-4 pr-4 font-mono text-xs text-slate-400">
                           {formatDate(exp.expenseDate)}
+                        </td>
+                        <td className="py-4 px-4 font-mono text-xs text-slate-300">
+                          {exp.applicableMonth ? `${exp.applicableMonth.toString().padStart(2, '0')}/${exp.applicableYear}` : 'N/A'}
                         </td>
                         <td className="py-4 px-4 font-semibold text-white truncate max-w-[200px]">{exp.description}</td>
                         <td className="py-4 px-4">
@@ -511,7 +523,7 @@ function ExpensesContent() {
                     required
                     value={expenseAmount}
                     onChange={(e) => setExpenseAmount(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-700 bg-slate-900 placeholder-slate-500 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              className="w-full px-3 py-2 border border-slate-700 bg-slate-900 placeholder-slate-500 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
                     placeholder="120.00"
                   />
                 </div>
@@ -525,6 +537,37 @@ function ExpensesContent() {
                     onChange={(e) => setExpenseDate(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-700 bg-slate-900 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Accounting Month</label>
+                    <select
+                      value={expensePeriodMonth}
+                      onChange={(e) => setExpensePeriodMonth(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-2 border border-slate-700 bg-slate-900 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                        <option key={m} value={m}>
+                          {new Date(2000, m - 1).toLocaleString('en-US', { month: 'long' })}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Accounting Year</label>
+                    <select
+                      value={expensePeriodYear}
+                      onChange={(e) => setExpensePeriodYear(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-2 border border-slate-700 bg-slate-900 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="flex justify-end space-x-3 pt-2">

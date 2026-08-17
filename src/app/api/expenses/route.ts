@@ -18,7 +18,13 @@ export async function GET(req: Request) {
     };
 
     // Date Filter
-    if (params.periodType) {
+    // Date/Period Filter
+    if (params.periodType === 'monthly') {
+      where.applicableYear = params.year || 2026;
+      where.applicableMonth = params.month || 8;
+    } else if (params.periodType === 'yearly') {
+      where.applicableYear = params.year || 2026;
+    } else if (params.periodType === 'custom') {
       const dateFilter = buildPrismaDateFilter(
         params.periodType,
         params.year || 2026,
@@ -116,17 +122,23 @@ export async function POST(req: Request) {
   const user = auth.user!;
 
   try {
-    const { amount, category, expenseDate, description, partnerId } = await req.json();
+    const { amount, category, expenseDate, description, partnerId, applicableMonth, applicableYear } = await req.json();
 
     if (!amount || !category || !expenseDate || !partnerId || !description) {
       return NextResponse.json({ error: 'Missing required expense fields' }, { status: 400 });
     }
 
+    const parsedDate = new Date(expenseDate);
+    const resolvedMonth = applicableMonth !== undefined ? Number(applicableMonth) : (parsedDate.getMonth() + 1);
+    const resolvedYear = applicableYear !== undefined ? Number(applicableYear) : parsedDate.getFullYear();
+
     const expense = await prisma.companyExpense.create({
       data: {
         amount: Number(amount),
         category,
-        expenseDate: new Date(expenseDate),
+        expenseDate: parsedDate,
+        applicableMonth: resolvedMonth,
+        applicableYear: resolvedYear,
         description,
         partnerId,
         companyId: user.companyId,

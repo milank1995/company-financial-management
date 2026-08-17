@@ -29,6 +29,21 @@ export interface MonthlyFinanceReport {
   paidByPartners: number;
   paidDirectlyByClients: number;
   partnerSettlements: PartnerMonthlySettlement[];
+  expensesByCategory: { category: string; amount: number }[];
+}
+
+export interface MultiMonthFinanceReport {
+  year: number;
+  months: number[];
+  totalIncome: number;
+  totalSalaries: number;
+  totalExpenses: number;
+  netProfit: number;
+  paidByCompany: number;
+  paidByPartners: number;
+  paidDirectlyByClients: number;
+  partnerSettlements: PartnerMonthlySettlement[];
+  expensesByCategory: { category: string; amount: number }[];
 }
 
 export interface YearlyFinanceReport {
@@ -65,6 +80,31 @@ export interface YearlyFinanceReport {
     netBalance: number;
     settlementType: 'RECEIVABLE' | 'PAYABLE';
   }[];
+  expensesByCategory: { category: string; amount: number }[];
+}
+
+export interface PreFetchedFinanceData {
+  partners: any[];
+  setups: any[];
+  payments: any[];
+  salaries: any[];
+  expenses: any[];
+  adjustments: any[];
+}
+
+export function resolveOwnershipPercentagesInMemory(setups: any[], date: Date) {
+  const latestSetup = setups.find((s) => new Date(s.effectiveDate) <= date);
+  const percentages: Record<string, number> = {};
+  
+  if (!latestSetup) {
+    return { percentages, setupId: null };
+  }
+
+  latestSetup.partnerOwnerships.forEach((po: any) => {
+    percentages[po.partnerId] = toNumber(po.percentage);
+  });
+
+  return { percentages, setupId: latestSetup.id };
 }
 
 /**
@@ -138,47 +178,63 @@ export async function resolveOwnershipPercentages(companyId: string, date: Date)
 export async function getMonthlyFinanceReport(
   companyId: string,
   year: number,
-  month: number
+  month: number,
+  partnerId?: string,
+  preFetchedData?: PreFetchedFinanceData
 ): Promise<MonthlyFinanceReport> {
   const { start, end } = getMonthBoundaries(year, month);
 
   // Fetch partners
-  const partners = await prisma.partner.findMany({
-    where: { companyId },
-  });
+  const partners = preFetchedData
+    ? preFetchedData.partners
+    : await prisma.partner.findMany({
+        where: { companyId },
+      });
 
   // Fetch transactions
-  const payments = await prisma.projectPayment.findMany({
-    where: {
-      companyId,
-      paymentDate: { gte: start, lt: end },
-      deletedAt: null,
-    },
-  });
+  const payments = preFetchedData
+    ? preFetchedData.payments.filter((p) => p.applicableYear === year && p.applicableMonth === month)
+    : await prisma.projectPayment.findMany({
+        where: {
+          companyId,
+          applicableYear: year,
+          applicableMonth: month,
+          deletedAt: null,
+        },
+      });
 
-  const salaries = await prisma.employeeSalary.findMany({
-    where: {
-      companyId,
-      paymentDate: { gte: start, lt: end },
-      deletedAt: null,
-    },
-  });
+  const salaries = preFetchedData
+    ? preFetchedData.salaries.filter((s) => s.applicableYear === year && s.applicableMonth === month)
+    : await prisma.employeeSalary.findMany({
+        where: {
+          companyId,
+          applicableYear: year,
+          applicableMonth: month,
+          deletedAt: null,
+        },
+      });
 
-  const expenses = await prisma.companyExpense.findMany({
-    where: {
-      companyId,
-      expenseDate: { gte: start, lt: end },
-      deletedAt: null,
-    },
-  });
+  const expenses = preFetchedData
+    ? preFetchedData.expenses.filter((e) => e.applicableYear === year && e.applicableMonth === month)
+    : await prisma.companyExpense.findMany({
+        where: {
+          companyId,
+          applicableYear: year,
+          applicableMonth: month,
+          deletedAt: null,
+        },
+      });
 
-  const adjustments = await prisma.partnerAdjustment.findMany({
-    where: {
-      companyId,
-      adjustmentDate: { gte: start, lt: end },
-      deletedAt: null,
-    },
-  });
+  const adjustments = preFetchedData
+    ? preFetchedData.adjustments.filter((a) => a.applicableYear === year && a.applicableMonth === month)
+    : await prisma.partnerAdjustment.findMany({
+        where: {
+          companyId,
+          applicableYear: year,
+          applicableMonth: month,
+          deletedAt: null,
+        },
+      });
 
   // Calculate aggregates
   const totalIncome = payments.reduce((acc, curr) => acc + toNumber(curr.amount), 0);
@@ -200,7 +256,9 @@ export async function getMonthlyFinanceReport(
     .reduce((acc, curr) => acc + toNumber(curr.amount), 0);
 
   // Resolve ownership active at the start of the month
-  const { percentages } = await resolveOwnershipPercentages(companyId, start);
+  const { percentages } = preFetchedData
+    ? resolveOwnershipPercentagesInMemory(preFetchedData.setups, start)
+    : await resolveOwnershipPercentages(companyId, start);
 
   // Partner settlements
   const partnerSettlements: PartnerMonthlySettlement[] = partners.map((partner) => {
@@ -260,6 +318,18 @@ export async function getMonthlyFinanceReport(
     };
   });
 
+  // Group expenses by category (filter by partner if provided)
+  const expenseCategorySums: Record<string, number> = {};
+  expenses
+    .filter((e) => !partnerId || e.partnerId === partnerId)
+    .forEach((e) => {
+      const cat = e.category || 'Other';
+      expenseCategorySums[cat] = (expenseCategorySums[cat] || 0) + toNumber(e.amount);
+    });
+  const expensesByCategory = Object.entries(expenseCategorySums)
+    .map(([category, amount]) => ({ category, amount }))
+    .sort((a, b) => b.amount - a.amount);
+
   return {
     year,
     month,
@@ -271,6 +341,7 @@ export async function getMonthlyFinanceReport(
     paidByPartners,
     paidDirectlyByClients,
     partnerSettlements,
+    expensesByCategory,
   };
 }
 
@@ -279,12 +350,68 @@ export async function getMonthlyFinanceReport(
  */
 export async function getYearlyFinanceReport(
   companyId: string,
-  year: number
+  year: number,
+  partnerId?: string
 ): Promise<YearlyFinanceReport> {
+  // Pre-fetch all data for the entire year in parallel
+  const [partners, setups, payments, salaries, expenses, adjustments] = await Promise.all([
+    prisma.partner.findMany({
+      where: { companyId },
+    }),
+    prisma.ownershipSetup.findMany({
+      where: { companyId },
+      orderBy: { effectiveDate: 'desc' },
+      include: {
+        partnerOwnerships: {
+          include: {
+            partner: true,
+          },
+        },
+      },
+    }),
+    prisma.projectPayment.findMany({
+      where: {
+        companyId,
+        applicableYear: year,
+        deletedAt: null,
+      },
+    }),
+    prisma.employeeSalary.findMany({
+      where: {
+        companyId,
+        applicableYear: year,
+        deletedAt: null,
+      },
+    }),
+    prisma.companyExpense.findMany({
+      where: {
+        companyId,
+        applicableYear: year,
+        deletedAt: null,
+      },
+    }),
+    prisma.partnerAdjustment.findMany({
+      where: {
+        companyId,
+        applicableYear: year,
+        deletedAt: null,
+      },
+    }),
+  ]);
+
+  const preFetchedData: PreFetchedFinanceData = {
+    partners,
+    setups,
+    payments,
+    salaries,
+    expenses,
+    adjustments,
+  };
+
   const monthlyReports: MonthlyFinanceReport[] = [];
 
   for (let m = 1; m <= 12; m++) {
-    const report = await getMonthlyFinanceReport(companyId, year, m);
+    const report = await getMonthlyFinanceReport(companyId, year, m, partnerId, preFetchedData);
     monthlyReports.push(report);
   }
 
@@ -298,16 +425,31 @@ export async function getYearlyFinanceReport(
   const paidDirectlyByClients = monthlyReports.reduce((acc, r) => acc + r.paidDirectlyByClients, 0);
 
   // Aggregate monthly breakdowns
-  const monthlyBreakdown = monthlyReports.map((r) => ({
-    month: r.month,
-    totalIncome: r.totalIncome,
-    totalSalaries: r.totalSalaries,
-    totalExpenses: r.totalExpenses,
-    netProfit: r.netProfit,
-    paidByCompany: r.paidByCompany,
-    paidByPartners: r.paidByPartners,
-    paidDirectlyByClients: r.paidDirectlyByClients,
-  }));
+  const monthlyBreakdown = monthlyReports.map((r) => {
+    if (partnerId) {
+      const ps = r.partnerSettlements.find((p) => p.partnerId === partnerId);
+      return {
+        month: r.month,
+        totalIncome: ps ? ps.profitShare : 0,
+        totalSalaries: ps ? ps.salariesPaid : 0,
+        totalExpenses: ps ? ps.expensesPaid : 0,
+        netProfit: ps ? ps.netBalance : 0,
+        paidByCompany: 0,
+        paidByPartners: 0,
+        paidDirectlyByClients: 0,
+      };
+    }
+    return {
+      month: r.month,
+      totalIncome: r.totalIncome,
+      totalSalaries: r.totalSalaries,
+      totalExpenses: r.totalExpenses,
+      netProfit: r.netProfit,
+      paidByCompany: r.paidByCompany,
+      paidByPartners: r.paidByPartners,
+      paidDirectlyByClients: r.paidDirectlyByClients,
+    };
+  });
 
   // Aggregate Partner settlements
   const partnerSettlementsMap: Record<
@@ -328,7 +470,6 @@ export async function getYearlyFinanceReport(
     }
   > = {};
 
-  const partners = await prisma.partner.findMany({ where: { companyId } });
   partners.forEach((partner) => {
     partnerSettlementsMap[partner.id] = {
       partnerId: partner.id,
@@ -369,6 +510,17 @@ export async function getYearlyFinanceReport(
     settlementType: (entry.netBalance >= 0 ? 'RECEIVABLE' : 'PAYABLE') as 'RECEIVABLE' | 'PAYABLE',
   }));
 
+  // Aggregate yearly expense category breakdowns
+  const yearlyExpenseCategorySums: Record<string, number> = {};
+  monthlyReports.forEach((mr) => {
+    mr.expensesByCategory.forEach((ec) => {
+      yearlyExpenseCategorySums[ec.category] = (yearlyExpenseCategorySums[ec.category] || 0) + ec.amount;
+    });
+  });
+  const expensesByCategory = Object.entries(yearlyExpenseCategorySums)
+    .map(([category, amount]) => ({ category, amount }))
+    .sort((a, b) => b.amount - a.amount);
+
   return {
     year,
     totalIncome,
@@ -380,5 +532,156 @@ export async function getYearlyFinanceReport(
     paidDirectlyByClients,
     monthlyBreakdown,
     partnerSettlements,
+    expensesByCategory,
+  };
+}
+
+export async function getMultiMonthFinanceReport(
+  companyId: string,
+  year: number,
+  months: number[],
+  partnerId?: string
+): Promise<MultiMonthFinanceReport> {
+  const [partners, setups, payments, salaries, expenses, adjustments] = await Promise.all([
+    prisma.partner.findMany({
+      where: { companyId },
+    }),
+    prisma.ownershipSetup.findMany({
+      where: { companyId },
+      orderBy: { effectiveDate: 'desc' },
+      include: {
+        partnerOwnerships: {
+          include: {
+            partner: true,
+          },
+        },
+      },
+    }),
+    prisma.projectPayment.findMany({
+      where: {
+        companyId,
+        applicableYear: year,
+        deletedAt: null,
+      },
+    }),
+    prisma.employeeSalary.findMany({
+      where: {
+        companyId,
+        applicableYear: year,
+        deletedAt: null,
+      },
+    }),
+    prisma.companyExpense.findMany({
+      where: {
+        companyId,
+        applicableYear: year,
+        deletedAt: null,
+      },
+    }),
+    prisma.partnerAdjustment.findMany({
+      where: {
+        companyId,
+        applicableYear: year,
+        deletedAt: null,
+      },
+    }),
+  ]);
+
+  const preFetchedData: PreFetchedFinanceData = {
+    partners,
+    setups,
+    payments,
+    salaries,
+    expenses,
+    adjustments,
+  };
+
+  const monthlyReports: MonthlyFinanceReport[] = [];
+  for (const m of months) {
+    const r = await getMonthlyFinanceReport(companyId, year, m, partnerId, preFetchedData);
+    monthlyReports.push(r);
+  }
+
+  const totalIncome = monthlyReports.reduce((acc, r) => acc + r.totalIncome, 0);
+  const totalSalaries = monthlyReports.reduce((acc, r) => acc + r.totalSalaries, 0);
+  const totalExpenses = monthlyReports.reduce((acc, r) => acc + r.totalExpenses, 0);
+  const netProfit = totalIncome - totalSalaries - totalExpenses;
+  const paidByCompany = monthlyReports.reduce((acc, r) => acc + r.paidByCompany, 0);
+  const paidByPartners = monthlyReports.reduce((acc, r) => acc + r.paidByPartners, 0);
+  const paidDirectlyByClients = monthlyReports.reduce((acc, r) => acc + r.paidDirectlyByClients, 0);
+
+  const partnerSettlementsMap: Record<string, PartnerMonthlySettlement> = {};
+  monthlyReports.forEach((mr) => {
+    mr.partnerSettlements.forEach((ps) => {
+      if (!partnerSettlementsMap[ps.partnerId]) {
+        partnerSettlementsMap[ps.partnerId] = {
+          partnerId: ps.partnerId,
+          partnerName: ps.partnerName,
+          ownershipPercentage: ps.ownershipPercentage,
+          profitShare: 0,
+          companyMoneyReceived: 0,
+          clientDirectSalaryReceived: 0,
+          totalCompanyMoneyReceived: 0,
+          salariesPaid: 0,
+          expensesPaid: 0,
+          credits: 0,
+          debits: 0,
+          netAdjustment: 0,
+          netBalance: 0,
+          settlementType: 'RECEIVABLE',
+        };
+      }
+      const entry = partnerSettlementsMap[ps.partnerId];
+      entry.profitShare += ps.profitShare;
+      entry.companyMoneyReceived += ps.companyMoneyReceived;
+      entry.clientDirectSalaryReceived += ps.clientDirectSalaryReceived;
+      entry.totalCompanyMoneyReceived += ps.totalCompanyMoneyReceived;
+      entry.salariesPaid += ps.salariesPaid;
+      entry.expensesPaid += ps.expensesPaid;
+      entry.credits += ps.credits;
+      entry.debits += ps.debits;
+      entry.netAdjustment += ps.netAdjustment;
+      entry.netBalance += ps.netBalance;
+    });
+  });
+
+  for (const pid in partnerSettlementsMap) {
+    const activeMonthsCount = monthlyReports.filter(r => r.partnerSettlements.some(ps => ps.partnerId === pid)).length;
+    if (activeMonthsCount > 0) {
+      const sumPerc = monthlyReports.reduce((acc, r) => {
+        const ps = r.partnerSettlements.find(p => p.partnerId === pid);
+        return acc + (ps ? ps.ownershipPercentage : 0);
+      }, 0);
+      partnerSettlementsMap[pid].ownershipPercentage = Number((sumPerc / activeMonthsCount).toFixed(2));
+    }
+  }
+
+  const partnerSettlements = Object.values(partnerSettlementsMap).map((entry) => ({
+    ...entry,
+    settlementType: (entry.netBalance >= 0 ? 'RECEIVABLE' : 'PAYABLE') as 'RECEIVABLE' | 'PAYABLE',
+  }));
+
+  const expenseCategorySums: Record<string, number> = {};
+  monthlyReports.forEach((mr) => {
+    mr.expensesByCategory.forEach((ec) => {
+      expenseCategorySums[ec.category] = (expenseCategorySums[ec.category] || 0) + ec.amount;
+    });
+  });
+  const expensesByCategory = Object.entries(expenseCategorySums)
+    .map(([category, amount]) => ({ category, amount }))
+    .sort((a, b) => b.amount - a.amount);
+
+  return {
+    year,
+    months,
+    totalIncome,
+    totalSalaries,
+    totalExpenses,
+    netProfit,
+    paidByCompany,
+    paidByPartners,
+    paidDirectlyByClients,
+    partnerSettlements,
+    expensesByCategory,
   };
 }

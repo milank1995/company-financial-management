@@ -34,6 +34,8 @@ export default function AdjustmentsPage() {
   const [adjustmentAmount, setAdjustmentAmount] = useState('');
   const [adjustmentType, setAdjustmentType] = useState('CREDIT');
   const [adjustmentDate, setAdjustmentDate] = useState('');
+  const [adjustmentPeriodMonth, setAdjustmentPeriodMonth] = useState(new Date().getMonth() + 1);
+  const [adjustmentPeriodYear, setAdjustmentPeriodYear] = useState(new Date().getFullYear());
   const [adjustmentDesc, setAdjustmentDesc] = useState('');
 
   const types = [
@@ -99,6 +101,8 @@ export default function AdjustmentsPage() {
             amount: finalAmount,
             type: adjustmentType,
             adjustmentDate,
+            applicableMonth: adjustmentPeriodMonth,
+            applicableYear: adjustmentPeriodYear,
             description: adjustmentDesc,
           }),
         }
@@ -121,6 +125,8 @@ export default function AdjustmentsPage() {
     setAdjustmentAmount('');
     setAdjustmentType('CREDIT');
     setAdjustmentDate('');
+    setAdjustmentPeriodMonth(new Date().getMonth() + 1);
+    setAdjustmentPeriodYear(new Date().getFullYear());
     setAdjustmentDesc('');
   };
 
@@ -130,13 +136,15 @@ export default function AdjustmentsPage() {
     setShowModal(true);
   };
 
-  const openEditAdjustment = (adj: Adjustment) => {
+  const openEditAdjustment = (adj: any) => {
     setAdjustmentIdToEdit(adj.id);
     setAdjustmentPartnerId(adj.partnerId);
     setAdjustmentAmount(Math.abs(Number(adj.amount)).toString());
     setAdjustmentType(adj.type);
     const dateStr = new Date(adj.adjustmentDate).toISOString().split('T')[0];
     setAdjustmentDate(dateStr);
+    setAdjustmentPeriodMonth(adj.applicableMonth ?? (new Date(adj.adjustmentDate).getMonth() + 1));
+    setAdjustmentPeriodYear(adj.applicableYear ?? new Date(adj.adjustmentDate).getFullYear());
     setAdjustmentDesc(adj.description);
     setShowModal(true);
   };
@@ -206,6 +214,7 @@ export default function AdjustmentsPage() {
                     <th className="pb-3 px-4">Partner</th>
                     <th className="pb-3 px-4">Type</th>
                     <th className="pb-3 px-4">Date</th>
+                    <th className="pb-3 px-4">Period</th>
                     <th className="pb-3 px-4 text-right">Amount</th>
                     <th className="pb-3 pl-4 text-right">Actions</th>
                   </tr>
@@ -213,12 +222,12 @@ export default function AdjustmentsPage() {
                 <tbody className="divide-y divide-slate-800">
                   {adjustments.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400">
+                      <td colSpan={7} className="py-8 text-center text-slate-400">
                         No adjustments recorded yet.
                       </td>
                     </tr>
                   ) : (
-                    adjustments.map((adj) => (
+                    adjustments.map((adj: any) => (
                       <tr key={adj.id} className="text-slate-300 hover:bg-slate-800/10">
                         <td className="py-4 pr-4">
                           <div>
@@ -245,6 +254,9 @@ export default function AdjustmentsPage() {
                             <Calendar className="h-3.5 w-3.5 mr-1 text-slate-500" />
                             {formatDate(adj.adjustmentDate)}
                           </span>
+                        </td>
+                        <td className="py-4 px-4 font-mono text-xs text-slate-300">
+                          {adj.applicableMonth ? `${adj.applicableMonth.toString().padStart(2, '0')}/${adj.applicableYear}` : 'N/A'}
                         </td>
                         <td className={`py-4 px-4 text-right font-bold ${
                           Number(adj.amount) >= 0 ? 'text-emerald-400' : 'text-rose-400'
@@ -346,6 +358,37 @@ export default function AdjustmentsPage() {
                     onChange={(e) => setAdjustmentDate(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-700 bg-slate-900 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Accounting Month</label>
+                    <select
+                      value={adjustmentPeriodMonth}
+                      onChange={(e) => setAdjustmentPeriodMonth(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-2 border border-slate-700 bg-slate-900 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                        <option key={m} value={m}>
+                          {new Date(2000, m - 1).toLocaleString('en-US', { month: 'long' })}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Accounting Year</label>
+                    <select
+                      value={adjustmentPeriodYear}
+                      onChange={(e) => setAdjustmentPeriodYear(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-2 border border-slate-700 bg-slate-900 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="flex justify-end space-x-3 pt-2">

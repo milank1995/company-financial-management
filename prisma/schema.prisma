@@ -130,27 +130,29 @@ model Project {
 }
 
 model ProjectPayment {
-  id          String    @id @default(uuid())
-  projectId   String
-  amount      Decimal   @db.Decimal(15, 2)
-  paymentDate DateTime
-  partnerId   String    // Partner who received company money
-  clientName  String?   // Client who paid
-  companyId   String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  createdBy   String?
-  updatedBy   String?
-  deletedAt   DateTime? // Soft-delete
-  deletedBy   String?
+  id              String    @id @default(uuid())
+  projectId       String
+  amount          Decimal   @db.Decimal(15, 2)
+  paymentDate     DateTime
+  applicableMonth Int       @default(1)
+  applicableYear  Int       @default(2026)
+  partnerId       String    // Partner who received company money
+  clientName      String?   // Client who paid
+  companyId       String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       String?
+  updatedBy       String?
+  deletedAt       DateTime? // Soft-delete
+  deletedBy       String?
 
   project     Project   @relation(fields: [projectId], references: [id], onDelete: Restrict)
   partner     Partner   @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   
-  @@index([companyId, paymentDate])
-  @@index([companyId, partnerId, paymentDate])
-  @@index([companyId, projectId, paymentDate])
+  @@index([companyId, applicableYear, applicableMonth])
+  @@index([companyId, partnerId, applicableYear, applicableMonth])
+  @@index([companyId, projectId, applicableYear, applicableMonth])
 }
 
 model Employee {
@@ -176,6 +178,8 @@ model EmployeeSalary {
   employeeId          String
   amount              Decimal             @db.Decimal(15, 2)
   paymentDate         DateTime
+  applicableMonth     Int                 @default(1)
+  applicableYear      Int                 @default(2026)
   paymentSource       SalaryPaymentSource
   partnerId           String?             // Partner who paid (only if source is PARTNER)
   clientName          String?             // Client who paid (only if source is CLIENT_DIRECT)
@@ -193,52 +197,56 @@ model EmployeeSalary {
   receivedByPartner   Partner?            @relation(name: "SalaryReceivedBy", fields: [receivedByPartnerId], references: [id], onDelete: Restrict)
   company             Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
-  @@index([companyId, paymentDate])
-  @@index([companyId, partnerId, paymentDate])
-  @@index([companyId, employeeId, paymentDate])
-  @@index([companyId, receivedByPartnerId, paymentDate])
+  @@index([companyId, applicableYear, applicableMonth])
+  @@index([companyId, partnerId, applicableYear, applicableMonth])
+  @@index([companyId, employeeId, applicableYear, applicableMonth])
+  @@index([companyId, receivedByPartnerId, applicableYear, applicableMonth])
 }
 
 model CompanyExpense {
-  id          String    @id @default(uuid())
-  amount      Decimal   @db.Decimal(15, 2)
-  category    String    // Office, software, utility, travel, marketing etc.
-  expenseDate DateTime
-  description String
-  partnerId   String    // Partner who paid the expense personally
-  companyId   String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  createdBy   String?
-  updatedBy   String?
-  deletedAt   DateTime? // Soft-delete
-  deletedBy   String?
+  id              String    @id @default(uuid())
+  amount          Decimal   @db.Decimal(15, 2)
+  category        String    // Office, software, utility, travel, marketing etc.
+  expenseDate     DateTime
+  applicableMonth Int       @default(1)
+  applicableYear  Int       @default(2026)
+  description     String
+  partnerId       String    // Partner who paid the expense personally
+  companyId       String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       String?
+  updatedBy       String?
+  deletedAt       DateTime? // Soft-delete
+  deletedBy       String?
 
   partner     Partner   @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
-  @@index([companyId, expenseDate])
-  @@index([companyId, partnerId, expenseDate])
+  @@index([companyId, applicableYear, applicableMonth])
+  @@index([companyId, partnerId, applicableYear, applicableMonth])
 }
 
 model PartnerAdjustment {
-  id             String                @id @default(uuid())
-  partnerId      String
-  amount         Decimal               @db.Decimal(15, 2) // Positive for Credits/Loans, Negative for Debits/Withdrawals
-  type           PartnerAdjustmentType
-  adjustmentDate DateTime
-  description    String
-  companyId      String
-  createdAt      DateTime              @default(now())
-  updatedAt      DateTime              @updatedAt
-  createdBy      String?
-  updatedBy      String?
-  deletedAt      DateTime?             // Soft-delete
-  deletedBy      String?
+  id              String                @id @default(uuid())
+  partnerId       String
+  amount          Decimal               @db.Decimal(15, 2) // Positive for Credits/Loans, Negative for Debits/Withdrawals
+  type            PartnerAdjustmentType
+  adjustmentDate  DateTime
+  applicableMonth Int                   @default(1)
+  applicableYear  Int                   @default(2026)
+  description     String
+  companyId       String
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  createdBy       String?
+  updatedBy       String?
+  deletedAt       DateTime?             // Soft-delete
+  deletedBy       String?
 
   partner        Partner               @relation(fields: [partnerId], references: [id], onDelete: Restrict)
   company        Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
-  @@index([companyId, adjustmentDate])
-  @@index([companyId, partnerId, adjustmentDate])
+  @@index([companyId, applicableYear, applicableMonth])
+  @@index([companyId, partnerId, applicableYear, applicableMonth])
 }

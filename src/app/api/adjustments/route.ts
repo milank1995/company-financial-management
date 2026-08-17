@@ -8,11 +8,25 @@ export async function GET(req: Request) {
   const user = auth.user!;
 
   try {
+    const { searchParams } = new URL(req.url);
+    const periodType = searchParams.get('periodType') || undefined;
+    const yearStr = searchParams.get('year');
+    const monthStr = searchParams.get('month');
+
+    const where: any = {
+      companyId: user.companyId,
+      deletedAt: null,
+    };
+
+    if (periodType === 'monthly') {
+      where.applicableYear = yearStr ? parseInt(yearStr, 10) : new Date().getFullYear();
+      where.applicableMonth = monthStr ? parseInt(monthStr, 10) : (new Date().getMonth() + 1);
+    } else if (periodType === 'yearly') {
+      where.applicableYear = yearStr ? parseInt(yearStr, 10) : new Date().getFullYear();
+    }
+
     const adjustments = await prisma.partnerAdjustment.findMany({
-      where: {
-        companyId: user.companyId,
-        deletedAt: null,
-      },
+      where,
       include: {
         partner: true,
       },
@@ -31,18 +45,24 @@ export async function POST(req: Request) {
   const user = auth.user!;
 
   try {
-    const { partnerId, amount, type, adjustmentDate, description } = await req.json();
+    const { partnerId, amount, type, adjustmentDate, description, applicableMonth, applicableYear } = await req.json();
 
     if (!partnerId || amount === undefined || !type || !adjustmentDate || !description) {
       return NextResponse.json({ error: 'Missing required adjustment fields' }, { status: 400 });
     }
+
+    const parsedDate = new Date(adjustmentDate);
+    const resolvedMonth = applicableMonth !== undefined ? Number(applicableMonth) : (parsedDate.getMonth() + 1);
+    const resolvedYear = applicableYear !== undefined ? Number(applicableYear) : parsedDate.getFullYear();
 
     const adjustment = await prisma.partnerAdjustment.create({
       data: {
         partnerId,
         amount: Number(amount),
         type,
-        adjustmentDate: new Date(adjustmentDate),
+        adjustmentDate: parsedDate,
+        applicableMonth: resolvedMonth,
+        applicableYear: resolvedYear,
         description,
         companyId: user.companyId,
         createdBy: user.userId,

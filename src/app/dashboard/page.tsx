@@ -12,14 +12,21 @@ import {
   Percent,
   ArrowUpRight,
   ArrowDownLeft,
+  Users,
+  RefreshCw,
 } from 'lucide-react';
+import InteractiveDonutChart from '@/components/charts/InteractiveDonutChart';
+import InteractiveLineChart from '@/components/charts/InteractiveLineChart';
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
   const [viewType, setViewType] = useState<'monthly' | 'yearly'>('monthly');
   const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [selectedMonth, setSelectedMonth] = useState<number>(8); // August
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([8]); // August
+  const [monthsDropdownOpen, setMonthsDropdownOpen] = useState(false);
   const [data, setData] = useState<any>(null);
+  const [partners, setPartners] = useState<any[]>([]);
+  const [selectedPartnerId, setSelectedPartnerId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -39,13 +46,46 @@ export default function DashboardPage() {
     { value: 12, label: 'December' },
   ];
 
+  // Fetch partners list once on mount
+  useEffect(() => {
+    const loadPartners = async () => {
+      try {
+        const res = await fetch('/api/partners');
+        if (res.ok) {
+          const json = await res.json();
+          setPartners(json);
+        }
+      } catch (err) {
+        console.error('Error loading partners:', err);
+      }
+    };
+    if (user) {
+      loadPartners();
+    }
+  }, [user]);
+
+  const toggleMonth = (mVal: number) => {
+    setSelectedMonths((prev) => {
+      if (prev.includes(mVal)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((m) => m !== mVal);
+      } else {
+        return [...prev, mVal].sort((a, b) => a - b);
+      }
+    });
+  };
+
   const fetchData = async () => {
     setLoading(true);
     setError('');
-    const url =
+    let url =
       viewType === 'monthly'
-        ? `/api/dashboard/monthly?year=${selectedYear}&month=${selectedMonth}`
+        ? `/api/dashboard/monthly?year=${selectedYear}&month=${selectedMonths.join(',')}`
         : `/api/dashboard/yearly?year=${selectedYear}`;
+
+    if (selectedPartnerId) {
+      url += `&partnerId=${selectedPartnerId}`;
+    }
 
     try {
       const res = await fetch(url);
@@ -63,9 +103,13 @@ export default function DashboardPage() {
     if (user) {
       fetchData();
     }
-  }, [user, viewType, selectedYear, selectedMonth]);
+  }, [user, viewType, selectedYear, selectedMonths, selectedPartnerId]);
 
   if (authLoading) return null;
+
+  const partnerSettlement = selectedPartnerId && data
+    ? data.partnerSettlements?.find((p: any) => p.partnerId === selectedPartnerId)
+    : null;
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
@@ -78,7 +122,7 @@ export default function DashboardPage() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-white">Financial Dashboard</h1>
-            <p className="text-slate-400 mt-1">Real-time dynamic accounting analysis</p>
+            <p className="text-slate-400 mt-1">On-demand performance-optimized dynamic accounting analysis</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -124,21 +168,95 @@ export default function DashboardPage() {
 
             {/* Month Selector (only for monthly view) */}
             {viewType === 'monthly' && (
-              <div className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-2 py-1">
-                <CalendarDays className="h-4 w-4 text-slate-400" />
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
-                  className="bg-transparent text-white text-sm focus:outline-none border-none pr-6 py-1"
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMonthsDropdownOpen(!monthsDropdownOpen)}
+                  className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-white text-sm hover:bg-[#1e293b] transition-colors"
                 >
-                  {months.map((m) => (
-                    <option key={m.value} value={m.value} className="bg-[#0f172a] text-white">
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
+                  <CalendarDays className="h-4 w-4 text-slate-400" />
+                  <span>
+                    {selectedMonths.length === 12
+                      ? 'All Months'
+                      : selectedMonths.length === 0
+                      ? 'Select Month'
+                      : selectedMonths.map((m) => months.find((mo) => mo.value === m)?.label.substring(0, 3)).join(', ')}
+                  </span>
+                </button>
+
+                {monthsDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setMonthsDropdownOpen(false)} />
+                    <div className="absolute right-0 mt-2 w-48 bg-[#0b0f19] border border-slate-800 rounded-xl shadow-xl z-20 p-3 space-y-2">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Months</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (selectedMonths.length === 12) {
+                              setSelectedMonths([new Date().getMonth() + 1]);
+                            } else {
+                              setSelectedMonths([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+                            }
+                          }}
+                          className="text-[10px] text-cyan-400 hover:text-cyan-300 font-medium"
+                        >
+                          {selectedMonths.length === 12 ? 'Clear All' : 'Select All'}
+                        </button>
+                      </div>
+                      <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+                        {months.map((m) => {
+                          const isChecked = selectedMonths.includes(m.value);
+                          return (
+                            <label
+                              key={m.value}
+                              className="flex items-center space-x-2 text-sm text-slate-355 hover:text-white cursor-pointer select-none py-0.5"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => toggleMonth(m.value)}
+                                className="rounded border-slate-800 bg-slate-900 text-cyan-500 focus:ring-cyan-500/25 h-4 w-4"
+                              />
+                              <span>{m.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
+
+            {/* Partner Selector */}
+            <div className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-2 py-1">
+              <Users className="h-4 w-4 text-slate-400" />
+              <select
+                value={selectedPartnerId}
+                onChange={(e) => setSelectedPartnerId(e.target.value)}
+                className="bg-transparent text-white text-sm focus:outline-none border-none pr-6 py-1"
+              >
+                <option value="" className="bg-[#0f172a] text-white">
+                  All Partners
+                </option>
+                {partners.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-[#0f172a] text-white">
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Refresh Button */}
+            <button
+              onClick={fetchData}
+              className="p-2 bg-[#0f172a] text-slate-450 rounded-lg hover:text-white border border-[#1e293b] hover:bg-[#1e293b] transition-colors flex items-center justify-center"
+              title="Refresh Dashboard Data"
+              disabled={loading}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-cyan-400' : 'text-slate-400'}`} />
+            </button>
           </div>
         </div>
 
@@ -159,8 +277,12 @@ export default function DashboardPage() {
               {/* Income */}
               <div className="glass-card p-6 rounded-2xl border border-slate-800 flex items-center justify-between">
                 <div>
-                  <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Total Income</p>
-                  <p className="text-2xl font-bold text-emerald-400 mt-2">{formatCurrency(data.totalIncome)}</p>
+                  <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                    {partnerSettlement ? 'Your Profit Share' : 'Total Income'}
+                  </p>
+                  <p className="text-2xl font-bold text-emerald-400 mt-2">
+                    {formatCurrency(partnerSettlement ? partnerSettlement.profitShare : data.totalIncome)}
+                  </p>
                 </div>
                 <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
                   <TrendingUp className="h-6 w-6 text-emerald-400" />
@@ -171,52 +293,171 @@ export default function DashboardPage() {
               <div className="glass-card p-6 rounded-2xl border border-slate-800 flex flex-col justify-between">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Salary Expense</p>
-                    <p className="text-2xl font-bold text-red-400 mt-2">{formatCurrency(data.totalSalaries)}</p>
+                    <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                      {partnerSettlement ? 'Your Salaries Paid' : 'Salary Expense'}
+                    </p>
+                    <p className="text-2xl font-bold text-red-400 mt-2">
+                      {formatCurrency(partnerSettlement ? partnerSettlement.salariesPaid : data.totalSalaries)}
+                    </p>
                   </div>
                   <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20">
                     <TrendingDown className="h-6 w-6 text-red-400" />
                   </div>
                 </div>
-                <div className="mt-4 space-y-1 text-xs border-t border-slate-800/80 pt-3">
-                  <div className="flex justify-between text-slate-400">
-                    <span>Paid by Company:</span>
-                    <span className="font-semibold text-slate-200">{formatCurrency(data.paidByCompany)}</span>
+                {partnerSettlement ? (
+                  <div className="mt-4 space-y-1 text-xs border-t border-slate-800/80 pt-3">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Salary Received (Client Direct):</span>
+                      <span className="font-semibold text-slate-200">
+                        {formatCurrency(partnerSettlement.clientDirectSalaryReceived)}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 italic mt-0.5">
+                      Acts as a liability reducing your settlement
+                    </div>
                   </div>
-                  <div className="flex justify-between text-slate-400">
-                    <span>Paid by Partners:</span>
-                    <span className="font-semibold text-slate-200">{formatCurrency(data.paidByPartners)}</span>
+                ) : (
+                  <div className="mt-4 space-y-1 text-xs border-t border-slate-800/80 pt-3">
+                    <div className="flex justify-between text-slate-400">
+                      <span>Paid by Company:</span>
+                      <span className="font-semibold text-slate-200">{formatCurrency(data.paidByCompany)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Paid by Partners:</span>
+                      <span className="font-semibold text-slate-200">{formatCurrency(data.paidByPartners)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-400">
+                      <span>Paid by Clients:</span>
+                      <span className="font-semibold text-slate-200">{formatCurrency(data.paidDirectlyByClients)}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-slate-400">
-                    <span>Paid by Clients:</span>
-                    <span className="font-semibold text-slate-200">{formatCurrency(data.paidDirectlyByClients)}</span>
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Expenses */}
               <div className="glass-card p-6 rounded-2xl border border-slate-800 flex items-center justify-between">
                 <div>
-                  <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Company Expenses</p>
-                  <p className="text-2xl font-bold text-orange-400 mt-2">{formatCurrency(data.totalExpenses)}</p>
+                  <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                    {partnerSettlement ? 'Your Expenses Covered' : 'Company Expenses'}
+                  </p>
+                  <p className="text-2xl font-bold text-orange-400 mt-2">
+                    {formatCurrency(partnerSettlement ? partnerSettlement.expensesPaid : data.totalExpenses)}
+                  </p>
                 </div>
                 <div className="p-3 bg-orange-500/10 rounded-xl border border-orange-500/20">
                   <DollarSign className="h-6 w-6 text-orange-400" />
                 </div>
               </div>
 
-              {/* Net Profit */}
+              {/* Net Profit / Settlement */}
               <div className="glass-card p-6 rounded-2xl border border-slate-800 flex items-center justify-between">
                 <div>
-                  <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Net Profit</p>
-                  <p className={`text-2xl font-bold mt-2 ${data.netProfit >= 0 ? 'text-cyan-400' : 'text-rose-500'}`}>
-                    {formatCurrency(data.netProfit)}
+                  <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                    {partnerSettlement ? 'Your Settlement Balance' : 'Net Profit'}
+                  </p>
+                  <p className={`text-2xl font-bold mt-2 ${
+                    (partnerSettlement ? partnerSettlement.netBalance : data.netProfit) >= 0 ? 'text-cyan-400' : 'text-rose-500'
+                  }`}>
+                    {formatCurrency(partnerSettlement ? partnerSettlement.netBalance : data.netProfit)}
                   </p>
                 </div>
-                <div className={`p-3 rounded-xl border ${data.netProfit >= 0 ? 'bg-cyan-500/10 border-cyan-500/20' : 'bg-rose-500/10 border-rose-500/20'}`}>
-                  <Percent className={`h-6 w-6 ${data.netProfit >= 0 ? 'text-cyan-400' : 'text-rose-500'}`} />
+                <div className={`p-3 rounded-xl border ${
+                  (partnerSettlement ? partnerSettlement.netBalance : data.netProfit) >= 0
+                    ? 'bg-cyan-500/10 border-cyan-500/20'
+                    : 'bg-rose-500/10 border-rose-500/20'
+                }`}>
+                  <Percent className={`h-6 w-6 ${
+                    (partnerSettlement ? partnerSettlement.netBalance : data.netProfit) >= 0 ? 'text-cyan-400' : 'text-rose-500'
+                  }`} />
                 </div>
               </div>
+            </div>
+
+            {/* Visual Charts Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {viewType === 'monthly' ? (
+                <>
+                  {/* Left Column: Operating Margin Ring */}
+                  <div className="glass-card p-6 rounded-2xl border border-slate-800 flex flex-col justify-between lg:col-span-1">
+                    <div>
+                      <h3 className="text-lg font-bold text-white mb-2">Operating Margin</h3>
+                      <p className="text-xs text-slate-400">Net Profit relative to Total Income</p>
+                      
+                      <div className="mt-8 flex items-center justify-center">
+                        <div className="relative flex items-center justify-center">
+                          <svg className="w-36 h-36">
+                            <circle
+                              className="text-slate-800"
+                              strokeWidth="8"
+                              stroke="currentColor"
+                              fill="transparent"
+                              r="60"
+                              cx="72"
+                              cy="72"
+                            />
+                            <circle
+                              className="text-cyan-400 transition-all duration-1000"
+                              strokeWidth="8"
+                              strokeDasharray={377}
+                              strokeDashoffset={
+                                data.totalIncome > 0
+                                  ? 377 - (377 * Math.max(0, Math.min(data.netProfit, data.totalIncome))) / data.totalIncome
+                                  : 377
+                              }
+                              strokeLinecap="round"
+                              stroke="currentColor"
+                              fill="transparent"
+                              r="60"
+                              cx="72"
+                              cy="72"
+                              transform="rotate(-90 72 72)"
+                            />
+                          </svg>
+                          <div className="absolute text-center">
+                            <span className="text-2xl font-bold text-white">
+                              {data.totalIncome > 0
+                                ? Math.max(0, Math.round((data.netProfit / data.totalIncome) * 100))
+                                : 0}
+                              %
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-6 border-t border-slate-800 pt-4 text-center">
+                      <p className="text-xs text-slate-400 font-medium">
+                        Operating Margin for {selectedMonths.length === 12 ? 'Year' : selectedMonths.map(m => months.find(mo => mo.value === m)?.label.substring(0, 3)).join(', ')} {selectedYear}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Right Columns: Interactive Monthly Expenses Donut Chart */}
+                  <div className="lg:col-span-2">
+                    <InteractiveDonutChart
+                      data={data.expensesByCategory || []}
+                      title="Monthly Expenses Breakdown"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Left Column: Interactive Yearly Expenses Donut Chart */}
+                  <div className="lg:col-span-1">
+                    <InteractiveDonutChart
+                      data={data.expensesByCategory || []}
+                      title="Yearly Expenses Breakdown"
+                    />
+                  </div>
+
+                  {/* Right Columns: Interactive Yearly Performance Line Chart */}
+                  <div className="lg:col-span-2">
+                    <InteractiveLineChart
+                      data={data.monthlyBreakdown || []}
+                      title="Monthly Financial Trend"
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Partner Financial Summary Table */}
@@ -243,7 +484,7 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {data.partnerSettlements?.map((p: any) => (
+                    {(partnerSettlement ? [partnerSettlement] : data.partnerSettlements || []).map((p: any) => (
                       <tr key={p.partnerId} className="text-slate-300 hover:bg-slate-800/10">
                         <td className="py-4 pr-4 font-semibold text-white">{p.partnerName}</td>
                         {viewType === 'monthly' && (
@@ -278,132 +519,49 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Bottom Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Left visual */}
-              {viewType === 'monthly' ? (
-                <div className="glass-card p-6 rounded-2xl border border-slate-800 flex flex-col justify-between lg:col-span-1">
-                  <div>
-                    <h3 className="text-lg font-bold text-white mb-2">Operating Margin</h3>
-                    <p className="text-xs text-slate-400">Net Profit relative to Total Income</p>
-                    
-                    <div className="mt-8 flex items-center justify-center">
-                      <div className="relative flex items-center justify-center">
-                        <svg className="w-36 h-36">
-                          <circle
-                            className="text-slate-800"
-                            strokeWidth="8"
-                            stroke="currentColor"
-                            fill="transparent"
-                            r="60"
-                            cx="72"
-                            cy="72"
-                          />
-                          <circle
-                            className="text-cyan-400 transition-all duration-1000"
-                            strokeWidth="8"
-                            strokeDasharray={377}
-                            strokeDashoffset={
-                              data.totalIncome > 0
-                                ? 377 - (377 * Math.max(0, Math.min(data.netProfit, data.totalIncome))) / data.totalIncome
-                                : 377
-                            }
-                            strokeLinecap="round"
-                            stroke="currentColor"
-                            fill="transparent"
-                            r="60"
-                            cx="72"
-                            cy="72"
-                            transform="rotate(-90 72 72)"
-                          />
-                        </svg>
-                        <div className="absolute text-center">
-                          <span className="text-2xl font-bold text-white">
-                            {data.totalIncome > 0
-                              ? Math.max(0, Math.round((data.netProfit / data.totalIncome) * 100))
-                              : 0}
-                            %
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-6 border-t border-slate-800 pt-4 text-center">
-                    <p className="text-xs text-slate-400 font-medium">
-                      Operating Margin for {months.find((m) => m.value === selectedMonth)?.label} {selectedYear}
-                    </p>
+            {/* Bottom Section: Settlement Net Balances Card */}
+            <div className="glass-card p-6 rounded-2xl border border-slate-800 space-y-4 w-full">
+              <h3 className="text-lg font-bold text-white">Settlement Net Balances Summary</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {/* Receivables */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400 flex items-center border-b border-slate-800 pb-2">
+                    <ArrowUpRight className="h-4 w-4 mr-1.5" /> Owed to Partner (Company Payables)
+                  </p>
+                  <div className="space-y-2">
+                    {((partnerSettlement ? [partnerSettlement] : data.partnerSettlements) || []).filter((p: any) => p.netBalance >= 0).length === 0 ? (
+                      <p className="text-xs text-slate-500">No partner receivables.</p>
+                    ) : (
+                      ((partnerSettlement ? [partnerSettlement] : data.partnerSettlements) || [])
+                        .filter((p: any) => p.netBalance >= 0)
+                        .map((p: any) => (
+                          <div key={p.partnerId} className="flex justify-between items-center p-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10 text-xs">
+                            <span className="font-semibold text-white">{p.partnerName}</span>
+                            <span className="font-bold text-emerald-400">{formatCurrency(p.netBalance)}</span>
+                          </div>
+                        ))
+                    )}
                   </div>
                 </div>
-              ) : (
-                <div className="glass-card p-6 rounded-2xl border border-slate-800 lg:col-span-1">
-                  <h3 className="text-lg font-bold text-white mb-4">Monthly Income Trend</h3>
-                  <div className="space-y-4">
-                    {data.monthlyBreakdown?.map((m: any) => (
-                      <div key={m.month} className="space-y-1">
-                        <div className="flex justify-between text-xs font-semibold text-slate-400">
-                          <span>{months.find((mon) => mon.value === m.month)?.label.substring(0, 3)}</span>
-                          <span className="text-slate-200">{formatCurrency(m.totalIncome)}</span>
-                        </div>
-                        <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                          <div
-                            className="bg-cyan-500 h-2 rounded-full transition-all duration-500"
-                            style={{
-                              width: `${
-                                data.totalIncome > 0 ? (m.totalIncome / data.totalIncome) * 200 : 0
-                              }%`,
-                            }}
-                          ></div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
-              {/* Settlements Summary list on right */}
-              <div className="glass-card p-6 rounded-2xl border border-slate-800 lg:col-span-2 space-y-4">
-                <h3 className="text-lg font-bold text-white">Settlement Net Balances</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Receivables */}
+                {/* Payables */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-rose-400 flex items-center border-b border-slate-800 pb-2">
+                    <ArrowDownLeft className="h-4 w-4 mr-1.5" /> Owed by Partner (Company Receivables)
+                  </p>
                   <div className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400 flex items-center">
-                      <ArrowUpRight className="h-4 w-4 mr-1" /> Owed to Partner
-                    </p>
-                    <div className="space-y-2">
-                      {data.partnerSettlements?.filter((p: any) => p.netBalance >= 0).length === 0 ? (
-                        <p className="text-xs text-slate-500">No partner receivables.</p>
-                      ) : (
-                        data.partnerSettlements
-                          ?.filter((p: any) => p.netBalance >= 0)
-                          .map((p: any) => (
-                            <div key={p.partnerId} className="flex justify-between items-center p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10 text-xs">
-                              <span className="font-medium text-white">{p.partnerName}</span>
-                              <span className="font-bold text-emerald-400">{formatCurrency(p.netBalance)}</span>
-                            </div>
-                          ))
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Payables */}
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-rose-400 flex items-center">
-                      <ArrowDownLeft className="h-4 w-4 mr-1" /> Owed by Partner
-                    </p>
-                    <div className="space-y-2">
-                      {data.partnerSettlements?.filter((p: any) => p.netBalance < 0).length === 0 ? (
-                        <p className="text-xs text-slate-500">No partner payables.</p>
-                      ) : (
-                        data.partnerSettlements
-                          ?.filter((p: any) => p.netBalance < 0)
-                          .map((p: any) => (
-                            <div key={p.partnerId} className="flex justify-between items-center p-2 rounded-lg bg-rose-500/5 border border-rose-500/10 text-xs">
-                              <span className="font-medium text-white">{p.partnerName}</span>
-                              <span className="font-bold text-rose-400">{formatCurrency(Math.abs(p.netBalance))}</span>
-                            </div>
-                          ))
-                      )}
-                    </div>
+                    {((partnerSettlement ? [partnerSettlement] : data.partnerSettlements) || []).filter((p: any) => p.netBalance < 0).length === 0 ? (
+                      <p className="text-xs text-slate-500">No partner payables.</p>
+                    ) : (
+                      ((partnerSettlement ? [partnerSettlement] : data.partnerSettlements) || [])
+                        .filter((p: any) => p.netBalance < 0)
+                        .map((p: any) => (
+                          <div key={p.partnerId} className="flex justify-between items-center p-2.5 rounded-lg bg-rose-500/5 border border-rose-500/10 text-xs">
+                            <span className="font-semibold text-white">{p.partnerName}</span>
+                            <span className="font-bold text-rose-400">{formatCurrency(Math.abs(p.netBalance))}</span>
+                          </div>
+                        ))
+                    )}
                   </div>
                 </div>
               </div>

@@ -18,6 +18,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       partnerId,
       clientName,
       receivedByPartnerId,
+      applicableMonth,
+      applicableYear,
     } = await req.json();
 
     if (!paymentSource) {
@@ -42,12 +44,34 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       finalReceivedByPartnerId = receivedByPartnerId || null;
     }
 
+    // Resolve target accounting period
+    let resolvedMonth = applicableMonth !== undefined ? Number(applicableMonth) : undefined;
+    let resolvedYear = applicableYear !== undefined ? Number(applicableYear) : undefined;
+
+    if (resolvedMonth === undefined || resolvedYear === undefined) {
+      if (paymentDate) {
+        const parsedDate = new Date(paymentDate);
+        if (!isNaN(parsedDate.getTime())) {
+          let m = parsedDate.getMonth(); // 0 to 11 (corresponds to month-1)
+          let y = parsedDate.getFullYear();
+          if (m === 0) {
+            m = 12;
+            y -= 1;
+          }
+          if (resolvedMonth === undefined) resolvedMonth = m;
+          if (resolvedYear === undefined) resolvedYear = y;
+        }
+      }
+    }
+
     const salary = await prisma.employeeSalary.update({
       where: { id, companyId: user.companyId },
       data: {
         employeeId,
         amount: amount !== undefined ? Number(amount) : undefined,
         paymentDate: paymentDate ? new Date(paymentDate) : undefined,
+        applicableMonth: resolvedMonth,
+        applicableYear: resolvedYear,
         paymentSource: paymentSource as SalaryPaymentSource,
         partnerId: finalPartnerId,
         clientName: finalClientName,

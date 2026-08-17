@@ -18,8 +18,13 @@ export async function GET(req: Request) {
       deletedAt: null,
     };
 
-    // Date Filter
-    if (params.periodType) {
+    // Date/Period Filter
+    if (params.periodType === 'monthly') {
+      where.applicableYear = params.year || 2026;
+      where.applicableMonth = params.month || 8;
+    } else if (params.periodType === 'yearly') {
+      where.applicableYear = params.year || 2026;
+    } else if (params.periodType === 'custom') {
       const dateFilter = buildPrismaDateFilter(
         params.periodType,
         params.year || 2026,
@@ -139,6 +144,8 @@ export async function POST(req: Request) {
       partnerId,
       clientName,
       receivedByPartnerId,
+      applicableMonth,
+      applicableYear,
     } = await req.json();
 
     if (!employeeId || !amount || !paymentDate || !paymentSource) {
@@ -163,11 +170,33 @@ export async function POST(req: Request) {
       finalReceivedByPartnerId = receivedByPartnerId || null;
     }
 
+    const parsedDate = new Date(paymentDate);
+    let resolvedMonth = applicableMonth !== undefined ? Number(applicableMonth) : undefined;
+    let resolvedYear = applicableYear !== undefined ? Number(applicableYear) : undefined;
+
+    if (resolvedMonth === undefined || resolvedYear === undefined) {
+      if (!isNaN(parsedDate.getTime())) {
+        let m = parsedDate.getMonth(); // 0 to 11 (corresponds to month-1)
+        let y = parsedDate.getFullYear();
+        if (m === 0) {
+          m = 12;
+          y -= 1;
+        }
+        if (resolvedMonth === undefined) resolvedMonth = m;
+        if (resolvedYear === undefined) resolvedYear = y;
+      } else {
+        resolvedMonth = 1;
+        resolvedYear = 2026;
+      }
+    }
+
     const salary = await prisma.employeeSalary.create({
       data: {
         employeeId,
         amount: Number(amount),
-        paymentDate: new Date(paymentDate),
+        paymentDate: parsedDate,
+        applicableMonth: resolvedMonth,
+        applicableYear: resolvedYear,
         paymentSource: paymentSource as SalaryPaymentSource,
         partnerId: finalPartnerId,
         clientName: finalClientName,
