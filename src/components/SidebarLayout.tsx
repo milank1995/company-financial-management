@@ -16,6 +16,8 @@ import {
   Menu,
   X,
   Building2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 interface SidebarLayoutProps {
@@ -26,6 +28,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   const menuItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -42,18 +45,42 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
   return (
     <div className="min-h-screen flex bg-[#090b11]">
       {/* Desktop Sidebar */}
-      <aside className="hidden md:flex md:w-64 md:flex-col fixed inset-y-0 bg-[#0d121f] border-r border-[#1e293b]">
+      <aside className={`hidden md:flex md:flex-col fixed inset-y-0 bg-[#0d121f] border-r border-[#1e293b] transition-all duration-300 z-30 ${
+        collapsed ? 'w-16' : 'w-64'
+      }`}>
         <div className="flex flex-col flex-grow pt-5 pb-4 overflow-y-auto">
           {/* Logo & Company Name */}
-          <div className="flex items-center px-4 mb-6 space-x-2">
-            <Building2 className="h-8 w-8 text-cyan-400" />
-            <span className="text-xl font-bold tracking-tight text-white">FinanceHub</span>
+          <div className="flex items-center justify-between px-4 mb-6">
+            <div className="flex items-center space-x-2 overflow-hidden">
+              <Building2 className="h-8 w-8 text-cyan-400 flex-shrink-0" />
+              {!collapsed && (
+                <span className="text-xl font-bold tracking-tight text-white transition-opacity duration-300">
+                  FinanceHub
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setCollapsed(!collapsed)}
+              className="hidden md:block p-1 rounded bg-[#162035] border border-[#233554] text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            </button>
           </div>
 
-          <div className="px-4 py-2 mb-4 mx-3 rounded-lg bg-[#162035] border border-[#233554]">
-            <p className="text-xs text-cyan-400 font-medium uppercase tracking-wider">Company</p>
-            <p className="text-sm font-semibold text-white truncate">{user?.companyName || 'Loading...'}</p>
-          </div>
+          {!collapsed ? (
+            <div className="px-4 py-2 mb-4 mx-3 rounded-lg bg-[#162035] border border-[#233554] transition-all duration-300">
+              <p className="text-xs text-cyan-400 font-medium uppercase tracking-wider">Company</p>
+              <p className="text-sm font-semibold text-white truncate">{user?.companyName || 'Loading...'}</p>
+            </div>
+          ) : (
+            <div className="flex justify-center mb-4" title={user?.companyName || 'Company'}>
+              <div className="w-8 h-8 rounded-full bg-[#162035] border border-[#233554] flex items-center justify-center text-xs font-bold text-cyan-400">
+                {user?.companyName ? user.companyName.charAt(0).toUpperCase() : 'C'}
+              </div>
+            </div>
+          )}
 
           {/* Nav Items */}
           <nav className="flex-1 px-3 space-y-1">
@@ -64,16 +91,21 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                 <Link
                   key={item.name}
                   href={item.href}
-                  className={`group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
+                  className={`group flex items-center py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
+                    collapsed ? 'justify-center px-2 mx-1' : 'px-3'
+                  } ${
                     active
                       ? 'bg-cyan-500/10 text-cyan-400 border-l-4 border-cyan-400 pl-2'
                       : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-100'
                   }`}
+                  title={collapsed ? item.name : undefined}
                 >
-                  <Icon className={`mr-3 h-5 w-5 flex-shrink-0 transition-colors ${
+                  <Icon className={`h-5 w-5 flex-shrink-0 transition-colors ${
+                    collapsed ? 'mr-0' : 'mr-3'
+                  } ${
                     active ? 'text-cyan-400' : 'text-slate-400 group-hover:text-slate-200'
                   }`} />
-                  {item.name}
+                  {!collapsed && <span className="transition-opacity duration-300">{item.name}</span>}
                 </Link>
               );
             })}
@@ -82,14 +114,16 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
 
         {/* User profile & Logout */}
         <div className="flex-shrink-0 flex border-t border-[#1e293b] p-4 bg-[#0a0f1b]">
-          <div className="flex items-center w-full">
-            <div className="ml-3 flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{user?.name}</p>
-              <p className="text-xs text-slate-400 truncate">{user?.email}</p>
-            </div>
+          <div className={`flex items-center w-full ${collapsed ? 'justify-center' : 'justify-between'}`}>
+            {!collapsed && (
+              <div className="ml-3 flex-1 min-w-0 pr-2">
+                <p className="text-sm font-medium text-white truncate">{user?.name}</p>
+                <p className="text-xs text-slate-400 truncate">{user?.email}</p>
+              </div>
+            )}
             <button
               onClick={logout}
-              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors ml-2"
+              className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
               title="Sign Out"
             >
               <LogOut className="h-5 w-5" />
@@ -180,7 +214,9 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col md:pl-64 min-w-0">
+      <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${
+        collapsed ? 'md:pl-16' : 'md:pl-64'
+      }`}>
         <main className="flex-1 py-8 px-4 sm:px-6 md:px-8 mt-16 md:mt-0">
           <div className="max-w-7xl mx-auto">{children}</div>
         </main>

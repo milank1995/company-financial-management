@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import SidebarLayout from '@/components/SidebarLayout';
 import FinancialFilterBar from '@/components/FinancialFilterBar';
@@ -42,6 +42,10 @@ function EmployeesContent() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Abort Controllers
+  const abortControllerRootsRef = useRef<AbortController | null>(null);
+  const abortControllerSalariesRef = useRef<AbortController | null>(null);
 
   // Root Data Lists
   const [employeesList, setEmployeesList] = useState<Employee[]>([]);
@@ -134,17 +138,25 @@ function EmployeesContent() {
 
   // Load root entities (Partners, Employees) once
   const loadRoots = async () => {
+    if (abortControllerRootsRef.current) {
+      abortControllerRootsRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRootsRef.current = controller;
+
     try {
       const [resEmp, resPart] = await Promise.all([
-        fetch('/api/employees'),
-        fetch('/api/partners'),
+        fetch('/api/employees', { signal: controller.signal }),
+        fetch('/api/partners', { signal: controller.signal }),
       ]);
       if (resEmp.ok && resPart.ok) {
         setEmployeesList(await resEmp.json());
         setPartnersList(await resPart.json());
       }
-    } catch (err) {
-      console.error('Failed to load roots:', err);
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error('Failed to load roots:', err);
+      }
     }
   };
 
@@ -156,6 +168,12 @@ function EmployeesContent() {
 
   // Load Salaries based on active filters
   const loadSalariesData = async () => {
+    if (abortControllerSalariesRef.current) {
+      abortControllerSalariesRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerSalariesRef.current = controller;
+
     setLoading(true);
     setError('');
 
@@ -167,7 +185,7 @@ function EmployeesContent() {
     });
 
     try {
-      const resSal = await fetch(`/api/employees/salaries?${params.toString()}`);
+      const resSal = await fetch(`/api/employees/salaries?${params.toString()}`, { signal: controller.signal });
       if (!resSal.ok) throw new Error('Failed to load salary details');
       
       const data = await resSal.json();
@@ -176,9 +194,13 @@ function EmployeesContent() {
       setTotalPages(data.totalPages);
       setSummary(data.summary);
     } catch (err: any) {
-      setError(err.message);
+      if (err.name !== 'AbortError') {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
+      if (abortControllerSalariesRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
@@ -187,6 +209,17 @@ function EmployeesContent() {
       loadSalariesData();
     }
   }, [user, filters]);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRootsRef.current) {
+        abortControllerRootsRef.current.abort();
+      }
+      if (abortControllerSalariesRef.current) {
+        abortControllerSalariesRef.current.abort();
+      }
+    };
+  }, []);
 
   // Handle filter changes
   const handleFilterChange = (updated: any) => {
@@ -396,7 +429,7 @@ function EmployeesContent() {
   };
 
   const formatCurrency = (val: any) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(val));
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(val));
   };
 
   const formatDate = (dateStr: string) => {
@@ -809,7 +842,7 @@ function EmployeesContent() {
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Salary Expense Amount ($)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Salary Expense Amount (₹)</label>
                   <input
                     type="number"
                     step="0.01"

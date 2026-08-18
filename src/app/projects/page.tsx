@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import SidebarLayout from '@/components/SidebarLayout';
 import FinancialFilterBar from '@/components/FinancialFilterBar';
@@ -39,6 +39,10 @@ function ProjectsContent() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Abort Controllers
+  const abortControllerRootsRef = useRef<AbortController | null>(null);
+  const abortControllerPaymentsRef = useRef<AbortController | null>(null);
 
   // Root Data Lists
   const [projectsList, setProjectsList] = useState<Project[]>([]);
@@ -123,17 +127,25 @@ function ProjectsContent() {
 
   // Load root entities once
   const loadRoots = async () => {
+    if (abortControllerRootsRef.current) {
+      abortControllerRootsRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRootsRef.current = controller;
+
     try {
       const [resProj, resPart] = await Promise.all([
-        fetch('/api/projects'),
-        fetch('/api/partners'),
+        fetch('/api/projects', { signal: controller.signal }),
+        fetch('/api/partners', { signal: controller.signal }),
       ]);
       if (resProj.ok && resPart.ok) {
         setProjectsList(await resProj.json());
         setPartnersList(await resPart.json());
       }
-    } catch (err) {
-      console.error('Failed to load roots:', err);
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error('Failed to load roots:', err);
+      }
     }
   };
 
@@ -145,6 +157,12 @@ function ProjectsContent() {
 
   // Load Payments based on active filters
   const loadPaymentsData = async () => {
+    if (abortControllerPaymentsRef.current) {
+      abortControllerPaymentsRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerPaymentsRef.current = controller;
+
     setLoading(true);
     setError('');
 
@@ -156,7 +174,7 @@ function ProjectsContent() {
     });
 
     try {
-      const resPay = await fetch(`/api/projects/payments?${params.toString()}`);
+      const resPay = await fetch(`/api/projects/payments?${params.toString()}`, { signal: controller.signal });
       if (!resPay.ok) throw new Error('Failed to load payments details');
 
       const data = await resPay.json();
@@ -165,9 +183,13 @@ function ProjectsContent() {
       setTotalPages(data.totalPages);
       setSummary(data.summary);
     } catch (err: any) {
-      setError(err.message);
+      if (err.name !== 'AbortError') {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
+      if (abortControllerPaymentsRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
@@ -176,6 +198,17 @@ function ProjectsContent() {
       loadPaymentsData();
     }
   }, [user, filters]);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRootsRef.current) {
+        abortControllerRootsRef.current.abort();
+      }
+      if (abortControllerPaymentsRef.current) {
+        abortControllerPaymentsRef.current.abort();
+      }
+    };
+  }, []);
 
   // Handle filter changes
   const handleFilterChange = (updated: any) => {
@@ -355,7 +388,7 @@ function ProjectsContent() {
   };
 
   const formatCurrency = (val: any) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(val));
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(val));
   };
 
   const formatDate = (dateStr: string) => {
@@ -627,7 +660,7 @@ function ProjectsContent() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Total Contract Amount ($)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Total Contract Amount (₹)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -724,7 +757,7 @@ function ProjectsContent() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Amount ($)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Amount (₹)</label>
                   <input
                     type="number"
                     step="0.01"

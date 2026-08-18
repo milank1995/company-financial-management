@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import SidebarLayout from '@/components/SidebarLayout';
 import FinancialFilterBar from '@/components/FinancialFilterBar';
@@ -30,6 +30,10 @@ function ExpensesContent() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // Abort Controllers
+  const abortControllerRootsRef = useRef<AbortController | null>(null);
+  const abortControllerExpensesRef = useRef<AbortController | null>(null);
 
   // Root Data Lists
   const [partnersList, setPartnersList] = useState<Partner[]>([]);
@@ -107,13 +111,21 @@ function ExpensesContent() {
 
   // Load partners list
   const loadRoots = async () => {
+    if (abortControllerRootsRef.current) {
+      abortControllerRootsRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRootsRef.current = controller;
+
     try {
-      const res = await fetch('/api/partners');
+      const res = await fetch('/api/partners', { signal: controller.signal });
       if (res.ok) {
         setPartnersList(await res.json());
       }
-    } catch (err) {
-      console.error('Failed to load partners list:', err);
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error('Failed to load partners list:', err);
+      }
     }
   };
 
@@ -125,6 +137,12 @@ function ExpensesContent() {
 
   // Load Expenses based on active filters
   const loadExpensesData = async () => {
+    if (abortControllerExpensesRef.current) {
+      abortControllerExpensesRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerExpensesRef.current = controller;
+
     setLoading(true);
     setError('');
 
@@ -136,7 +154,7 @@ function ExpensesContent() {
     });
 
     try {
-      const resExp = await fetch(`/api/expenses?${params.toString()}`);
+      const resExp = await fetch(`/api/expenses?${params.toString()}`, { signal: controller.signal });
       if (!resExp.ok) throw new Error('Failed to load expenses details');
 
       const data = await resExp.json();
@@ -145,9 +163,13 @@ function ExpensesContent() {
       setTotalPages(data.totalPages);
       setSummary(data.summary);
     } catch (err: any) {
-      setError(err.message);
+      if (err.name !== 'AbortError') {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
+      if (abortControllerExpensesRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
@@ -156,6 +178,17 @@ function ExpensesContent() {
       loadExpensesData();
     }
   }, [user, filters]);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRootsRef.current) {
+        abortControllerRootsRef.current.abort();
+      }
+      if (abortControllerExpensesRef.current) {
+        abortControllerExpensesRef.current.abort();
+      }
+    };
+  }, []);
 
   // Handle filter changes
   const handleFilterChange = (updated: any) => {
@@ -271,7 +304,7 @@ function ExpensesContent() {
   };
 
   const formatCurrency = (val: any) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(val));
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(val));
   };
 
   const formatDate = (dateStr: string) => {
@@ -516,7 +549,7 @@ function ExpensesContent() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Amount ($)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Amount (₹)</label>
                   <input
                     type="number"
                     step="0.01"

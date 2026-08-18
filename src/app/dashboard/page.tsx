@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import SidebarLayout from '@/components/SidebarLayout';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -17,18 +17,257 @@ import {
 } from 'lucide-react';
 import InteractiveDonutChart from '@/components/charts/InteractiveDonutChart';
 import InteractiveLineChart from '@/components/charts/InteractiveLineChart';
+import DrilldownModal from '@/components/DrilldownModal';
+
+interface MonthlyPartnerBreakdownTableProps {
+  breakdown: any[];
+  months: { value: number; label: string }[];
+  formatCurrency: (val: number) => string;
+  onDrilldown: (partnerId: string, partnerName: string, type: any, periods: string[]) => void;
+}
+
+function MonthlyPartnerBreakdownTable({ breakdown, months, formatCurrency, onDrilldown }: MonthlyPartnerBreakdownTableProps) {
+  const [isCollapsed, setIsCollapsed] = useState(true);
+  const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
+
+  if (!breakdown || breakdown.length === 0) return null;
+
+  return (
+    <div className="glass-card p-6 rounded-2xl border border-slate-800 w-full overflow-hidden space-y-4">
+      <button
+        type="button"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+        className="w-full flex items-center justify-between pb-2 border-b border-slate-800/60 text-left hover:opacity-90 select-none"
+      >
+        <div>
+          <h3 className="text-lg font-bold text-white flex items-center">
+            <span>Month-wise Partner Settlement Breakdown</span>
+            <span className="text-xs font-semibold px-2 py-0.5 bg-slate-800 text-slate-400 rounded ml-3">
+              {breakdown.length} {breakdown.length === 1 ? 'Month' : 'Months'}
+            </span>
+          </h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {isCollapsed ? 'Click to expand month-wise breakdown list' : 'Click to collapse list'}
+          </p>
+        </div>
+        <span className="text-slate-400 hover:text-white transition-colors">
+          {isCollapsed ? (
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            </svg>
+          )}
+        </span>
+      </button>
+
+      {!isCollapsed && (
+        <div className="space-y-3 animate-fade-in">
+          {breakdown.map((row: any) => {
+            const monthName = months.find((m) => m.value === row.month)?.label || `Month ${row.month}`;
+            const monthLabel = row.year ? `${monthName} ${row.year}` : monthName;
+            const periodKey = `${row.year}-${row.month}`;
+            const isExpanded = !!expandedMonths[periodKey];
+
+            return (
+              <div
+                key={periodKey}
+                className="border border-slate-800/80 rounded-xl overflow-hidden bg-slate-950/20 hover:border-slate-700/60 transition-colors"
+              >
+                {/* Row Header */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpandedMonths((prev) => ({
+                      ...prev,
+                      [periodKey]: !prev[periodKey],
+                    }));
+                  }}
+                  className="w-full flex flex-col md:flex-row md:items-center justify-between p-4 text-left hover:bg-slate-800/5 transition-colors gap-3 select-none"
+                >
+                  <div className="flex items-center space-x-3">
+                    <span className="text-base font-bold text-white min-w-[100px]">{monthLabel}</span>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <span className="px-2 py-0.5 rounded bg-slate-800/60 text-slate-400">
+                        Profit: <strong className="text-slate-200">{formatCurrency(row.netProfit)}</strong>
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-slate-800/60 text-slate-400">
+                        Income: <strong className="text-slate-200">{formatCurrency(row.totalIncome)}</strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-4">
+                    {/* Summary of each partner's balance */}
+                    <div className="flex items-center space-x-3">
+                      {row.partnerSettlements?.map((ps: any) => {
+                        const isReceivable = ps.netBalance >= 0;
+                        return (
+                          <div
+                            key={ps.partnerId}
+                            className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg border text-xs font-semibold ${
+                              isReceivable
+                                ? 'bg-emerald-500/5 border-emerald-500/10 text-emerald-400'
+                                : 'bg-rose-500/5 border-rose-500/10 text-rose-400'
+                            }`}
+                          >
+                            <span className="opacity-80">{ps.partnerName}:</span>
+                            <span>{isReceivable ? '+' : ''}{formatCurrency(ps.netBalance)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {/* Arrow indicator */}
+                    <span className="text-slate-500 hover:text-white transition-colors">
+                      {isExpanded ? (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      )}
+                    </span>
+                  </div>
+                </button>
+
+                {/* Row Detailed Expansion */}
+                {isExpanded && (
+                  <div className="p-4 border-t border-slate-800/60 bg-[#070b14]/40 grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
+                    {row.partnerSettlements?.map((ps: any) => {
+                      const isReceivable = ps.netBalance >= 0;
+                      return (
+                        <div
+                          key={ps.partnerId}
+                          className="glass-card p-4 rounded-xl border border-slate-800/80 bg-slate-900/10 space-y-3"
+                        >
+                          <div className="flex items-center justify-between border-b border-slate-800/50 pb-2">
+                            <span className="text-sm font-bold text-white flex items-center">
+                              <span className="h-2.5 w-2.5 rounded-full bg-cyan-400 mr-2" />
+                              {ps.partnerName}
+                            </span>
+                            <span className="text-[11px] font-semibold bg-slate-850 px-2 py-0.5 rounded text-cyan-400">
+                              Ownership: {ps.ownershipPercentage?.toFixed(2)}%
+                            </span>
+                          </div>
+
+                          <div className="space-y-2 text-xs">
+                            <div 
+                              onClick={() => onDrilldown(ps.partnerId, ps.partnerName, 'profit_share', [periodKey])}
+                              className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                              title="Audit Profit Share breakdown"
+                            >
+                              <span>Profit Share:</span>
+                              <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">{formatCurrency(ps.profitShare)}</span>
+                            </div>
+                            <div 
+                              onClick={() => onDrilldown(ps.partnerId, ps.partnerName, 'salaries_paid', [periodKey])}
+                              className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                              title="View paid salaries list"
+                            >
+                              <span>Paid Personally (Salaries):</span>
+                              <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">+{formatCurrency(ps.salariesPaid)}</span>
+                            </div>
+                            <div 
+                              onClick={() => onDrilldown(ps.partnerId, ps.partnerName, 'expenses_paid', [periodKey])}
+                              className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                              title="View paid expenses list"
+                            >
+                              <span>Paid Personally (Expenses):</span>
+                              <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">+{formatCurrency(ps.expensesPaid)}</span>
+                            </div>
+                            <div 
+                              onClick={() => onDrilldown(ps.partnerId, ps.partnerName, 'project_payments', [periodKey])}
+                              className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                              title="View received project payments"
+                            >
+                              <span>Money Received (Company Payments):</span>
+                              <span className="font-semibold text-rose-450 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">-{formatCurrency(ps.companyMoneyReceived)}</span>
+                            </div>
+                            <div 
+                              onClick={() => onDrilldown(ps.partnerId, ps.partnerName, 'client_direct', [periodKey])}
+                              className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                              title="View received direct salaries"
+                            >
+                              <span>Money Received (Client Direct):</span>
+                              <span className="font-semibold text-rose-455 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">-{formatCurrency(ps.clientDirectSalaryReceived)}</span>
+                            </div>
+                            <div 
+                              onClick={() => onDrilldown(ps.partnerId, ps.partnerName, 'adjustments', [periodKey])}
+                              className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                              title="View adjustments ledger"
+                            >
+                              <span>Net Adjustments:</span>
+                              <span className={`font-semibold group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600 ${ps.netAdjustment >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
+                                {ps.netAdjustment >= 0 ? '+' : ''}{formatCurrency(ps.netAdjustment)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div
+                            className={`flex items-center justify-between border-t border-slate-800/50 pt-2.5 mt-1 text-xs font-bold ${
+                              isReceivable ? 'text-emerald-400' : 'text-rose-500'
+                            }`}
+                          >
+                            <span>{isReceivable ? 'Receivable (Owed to Partner)' : 'Payable (Owed by Partner)'}:</span>
+                            <span className="text-sm">{isReceivable ? '+' : ''}{formatCurrency(ps.netBalance)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
   const [viewType, setViewType] = useState<'monthly' | 'yearly'>('monthly');
   const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [selectedMonths, setSelectedMonths] = useState<number[]>([8]); // August
+  const [selectedPeriods, setSelectedPeriods] = useState<string[]>(['2026-08']); // default to August 2026
   const [monthsDropdownOpen, setMonthsDropdownOpen] = useState(false);
   const [data, setData] = useState<any>(null);
   const [partners, setPartners] = useState<any[]>([]);
   const [selectedPartnerId, setSelectedPartnerId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Drilldown Modal States
+  const [drilldownOpen, setDrilldownOpen] = useState(false);
+  const [drilldownConfig, setDrilldownConfig] = useState<{
+    partnerId?: string;
+    partnerName?: string;
+    type: 'profit_share' | 'salaries_paid' | 'expenses_paid' | 'client_direct' | 'project_payments' | 'adjustments' | 'credits' | 'debits';
+    periods: string[];
+  }>({
+    type: 'profit_share',
+    periods: [],
+  });
+
+  const handleDrilldown = (
+    partnerId: string,
+    partnerName: string,
+    type: any,
+    periods: string[]
+  ) => {
+    setDrilldownConfig({
+      partnerId,
+      partnerName,
+      type,
+      periods,
+    });
+    setDrilldownOpen(true);
+  };
 
   const years = [2024, 2025, 2026, 2027, 2028];
   const months = [
@@ -64,23 +303,46 @@ export default function DashboardPage() {
     }
   }, [user]);
 
-  const toggleMonth = (mVal: number) => {
-    setSelectedMonths((prev) => {
-      if (prev.includes(mVal)) {
+  const togglePeriod = (periodStr: string) => {
+    setSelectedPeriods((prev) => {
+      if (prev.includes(periodStr)) {
         if (prev.length === 1) return prev;
-        return prev.filter((m) => m !== mVal);
+        return prev.filter((p) => p !== periodStr);
       } else {
-        return [...prev, mVal].sort((a, b) => a - b);
+        return [...prev, periodStr].sort();
+      }
+    });
+  };
+
+  const toggleYearAll = (year: number) => {
+    const yearPeriods = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
+    setSelectedPeriods((prev) => {
+      const hasAll = yearPeriods.every((p) => prev.includes(p));
+      if (hasAll) {
+        const remaining = prev.filter((p) => !yearPeriods.includes(p));
+        if (remaining.length === 0) {
+          return [`${year}-01`].sort();
+        }
+        return remaining.sort();
+      } else {
+        const union = Array.from(new Set([...prev, ...yearPeriods]));
+        return union.sort();
       }
     });
   };
 
   const fetchData = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     setError('');
     let url =
       viewType === 'monthly'
-        ? `/api/dashboard/monthly?year=${selectedYear}&month=${selectedMonths.join(',')}`
+        ? `/api/dashboard/monthly?periods=${selectedPeriods.join(',')}`
         : `/api/dashboard/yearly?year=${selectedYear}`;
 
     if (selectedPartnerId) {
@@ -88,14 +350,18 @@ export default function DashboardPage() {
     }
 
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: controller.signal });
       if (!res.ok) throw new Error('Failed to fetch dashboard data');
       const json = await res.json();
       setData(json);
     } catch (err: any) {
-      setError(err.message);
+      if (err.name !== 'AbortError') {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
@@ -103,7 +369,15 @@ export default function DashboardPage() {
     if (user) {
       fetchData();
     }
-  }, [user, viewType, selectedYear, selectedMonths, selectedPartnerId]);
+  }, [user, viewType, selectedYear, selectedPeriods, selectedPartnerId]);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   if (authLoading) return null;
 
@@ -112,8 +386,10 @@ export default function DashboardPage() {
     : null;
 
   const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(val);
   };
+
+
 
   return (
     <SidebarLayout>
@@ -125,12 +401,12 @@ export default function DashboardPage() {
             <p className="text-slate-400 mt-1">On-demand performance-optimized dynamic accounting analysis</p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full md:w-auto">
             {/* View Type Toggle */}
-            <div className="bg-[#0f172a] p-1 rounded-lg border border-[#1e293b] flex">
+            <div className="bg-[#0f172a] p-1 rounded-lg border border-[#1e293b] flex w-full md:w-auto">
               <button
                 onClick={() => setViewType('monthly')}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
+                className={`flex-1 md:flex-initial px-3 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
                   viewType === 'monthly'
                     ? 'bg-cyan-500 text-black shadow-md'
                     : 'text-slate-400 hover:text-slate-200'
@@ -140,7 +416,7 @@ export default function DashboardPage() {
               </button>
               <button
                 onClick={() => setViewType('yearly')}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
+                className={`flex-1 md:flex-initial px-3 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
                   viewType === 'yearly'
                     ? 'bg-cyan-500 text-black shadow-md'
                     : 'text-slate-400 hover:text-slate-200'
@@ -150,76 +426,121 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {/* Year Selector */}
-            <div className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-2 py-1">
-              <Calendar className="h-4 w-4 text-slate-400" />
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
-                className="bg-transparent text-white text-sm focus:outline-none border-none pr-6 py-1"
-              >
-                {years.map((y) => (
-                  <option key={y} value={y} className="bg-[#0f172a] text-white">
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Year Selector (only for yearly view) */}
+            {viewType === 'yearly' && (
+              <div className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-1.5 w-full md:w-auto justify-between md:justify-start">
+                <div className="flex items-center space-x-1.5">
+                  <Calendar className="h-4 w-4 text-slate-400" />
+                  <span className="text-sm text-slate-400 md:hidden">Year</span>
+                </div>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                  className="bg-transparent text-white text-sm focus:outline-none border-none pr-6 py-0.5 md:w-auto text-right md:text-left"
+                >
+                  {years.map((y) => (
+                    <option key={y} value={y} className="bg-[#0f172a] text-white">
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-            {/* Month Selector (only for monthly view) */}
+            {/* Unified Cross-Year Period Selector (only for monthly view) */}
             {viewType === 'monthly' && (
-              <div className="relative">
+              <div className="relative w-full md:w-auto">
                 <button
                   type="button"
                   onClick={() => setMonthsDropdownOpen(!monthsDropdownOpen)}
-                  className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-white text-sm hover:bg-[#1e293b] transition-colors"
+                  className="flex items-center justify-between md:justify-start space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2.5 md:py-2 text-white text-sm hover:bg-[#1e293b] transition-colors w-full md:w-auto"
                 >
-                  <CalendarDays className="h-4 w-4 text-slate-400" />
+                  <div className="flex items-center space-x-1.5">
+                    <CalendarDays className="h-4 w-4 text-slate-400" />
+                    <span className="md:hidden text-slate-400">Periods</span>
+                  </div>
                   <span>
-                    {selectedMonths.length === 12
-                      ? 'All Months'
-                      : selectedMonths.length === 0
-                      ? 'Select Month'
-                      : selectedMonths.map((m) => months.find((mo) => mo.value === m)?.label.substring(0, 3)).join(', ')}
+                    {selectedPeriods.length === 0
+                      ? 'Select Periods'
+                      : selectedPeriods.length > 3
+                      ? `${selectedPeriods.length} Periods`
+                      : selectedPeriods
+                          .map((p) => {
+                            const [y, m] = p.split('-');
+                            const mName = months.find((mo) => mo.value === parseInt(m, 10))?.label.substring(0, 3);
+                            return `${mName} ${y}`;
+                          })
+                          .join(', ')}
                   </span>
                 </button>
 
                 {monthsDropdownOpen && (
                   <>
-                    <div className="fixed inset-0 z-10" onClick={() => setMonthsDropdownOpen(false)} />
-                    <div className="absolute right-0 mt-2 w-48 bg-[#0b0f19] border border-slate-800 rounded-xl shadow-xl z-20 p-3 space-y-2">
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
-                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Months</span>
+                    {/* mobile backdrop overlay */}
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-20 md:hidden animate-fade-in" onClick={() => setMonthsDropdownOpen(false)} />
+                    {/* desktop click outside overlay */}
+                    <div className="fixed inset-0 z-10 hidden md:block" onClick={() => setMonthsDropdownOpen(false)} />
+                    
+                    <div className="fixed bottom-4 inset-x-4 max-h-[80vh] md:absolute md:bottom-auto md:inset-x-auto md:right-0 md:mt-2 md:w-80 bg-[#0b0f19] border border-slate-800 rounded-xl shadow-2xl z-30 p-4 space-y-4 md:max-h-[450px] overflow-y-auto animate-fade-in">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Periods</span>
                         <button
                           type="button"
                           onClick={() => {
-                            if (selectedMonths.length === 12) {
-                              setSelectedMonths([new Date().getMonth() + 1]);
-                            } else {
-                              setSelectedMonths([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-                            }
+                            setSelectedPeriods(['2026-08']);
                           }}
                           className="text-[10px] text-cyan-400 hover:text-cyan-300 font-medium"
                         >
-                          {selectedMonths.length === 12 ? 'Clear All' : 'Select All'}
+                          Reset
                         </button>
                       </div>
-                      <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
-                        {months.map((m) => {
-                          const isChecked = selectedMonths.includes(m.value);
+                      
+                      <div className="space-y-4">
+                        {years.map((y) => {
+                          const yearPeriods = Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, '0')}`);
+                          const hasAll = yearPeriods.every((p) => selectedPeriods.includes(p));
+                          const hasSome = yearPeriods.some((p) => selectedPeriods.includes(p)) && !hasAll;
+                          
                           return (
-                            <label
-                              key={m.value}
-                              className="flex items-center space-x-2 text-sm text-slate-355 hover:text-white cursor-pointer select-none py-0.5"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={() => toggleMonth(m.value)}
-                                className="rounded border-slate-800 bg-slate-900 text-cyan-500 focus:ring-cyan-500/25 h-4 w-4"
-                              />
-                              <span>{m.label}</span>
-                            </label>
+                            <div key={y} className="space-y-2 border-b border-slate-800/40 pb-3 last:border-0 last:pb-0">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-bold text-white">{y}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleYearAll(y)}
+                                  className={`text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
+                                    hasAll
+                                      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                                      : hasSome
+                                      ? 'bg-slate-800 text-slate-300 border-slate-700/60'
+                                      : 'text-slate-400 hover:text-white border-transparent'
+                                  }`}
+                                >
+                                  {hasAll ? 'Deselect All' : 'Select All'}
+                                </button>
+                              </div>
+                              
+                              <div className="grid grid-cols-4 gap-1.5">
+                                {months.map((m) => {
+                                  const pStr = `${y}-${String(m.value).padStart(2, '0')}`;
+                                  const isChecked = selectedPeriods.includes(pStr);
+                                  return (
+                                    <button
+                                      key={m.value}
+                                      type="button"
+                                      onClick={() => togglePeriod(pStr)}
+                                      className={`px-1.5 py-1 text-[11px] font-medium rounded border text-center transition-all ${
+                                        isChecked
+                                          ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 font-bold'
+                                          : 'bg-[#0f172a]/40 text-slate-400 border-transparent hover:text-white hover:bg-slate-800/30'
+                                      }`}
+                                    >
+                                      {m.label.substring(0, 3)}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           );
                         })}
                       </div>
@@ -230,12 +551,15 @@ export default function DashboardPage() {
             )}
 
             {/* Partner Selector */}
-            <div className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-2 py-1">
-              <Users className="h-4 w-4 text-slate-400" />
+            <div className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-1.5 w-full md:w-auto justify-between md:justify-start">
+              <div className="flex items-center space-x-1.5">
+                <Users className="h-4 w-4 text-slate-400" />
+                <span className="text-sm text-slate-400 md:hidden">Partner</span>
+              </div>
               <select
                 value={selectedPartnerId}
                 onChange={(e) => setSelectedPartnerId(e.target.value)}
-                className="bg-transparent text-white text-sm focus:outline-none border-none pr-6 py-1"
+                className="bg-transparent text-white text-sm focus:outline-none border-none pr-6 py-0.5 md:w-auto text-right md:text-left"
               >
                 <option value="" className="bg-[#0f172a] text-white">
                   All Partners
@@ -251,7 +575,7 @@ export default function DashboardPage() {
             {/* Refresh Button */}
             <button
               onClick={fetchData}
-              className="p-2 bg-[#0f172a] text-slate-450 rounded-lg hover:text-white border border-[#1e293b] hover:bg-[#1e293b] transition-colors flex items-center justify-center"
+              className="p-2.5 md:p-2 bg-[#0f172a] text-slate-450 rounded-lg hover:text-white border border-[#1e293b] hover:bg-[#1e293b] transition-colors flex items-center justify-center w-full md:w-10 h-10"
               title="Refresh Dashboard Data"
               disabled={loading}
             >
@@ -423,13 +747,25 @@ export default function DashboardPage() {
                           </div>
                         </div>
                       </div>
-                    </div>
                     <div className="mt-6 border-t border-slate-800 pt-4 text-center">
                       <p className="text-xs text-slate-400 font-medium">
-                        Operating Margin for {selectedMonths.length === 12 ? 'Year' : selectedMonths.map(m => months.find(mo => mo.value === m)?.label.substring(0, 3)).join(', ')} {selectedYear}
+                        Operating Margin for {
+                          selectedPeriods.length === 0
+                            ? 'No periods selected'
+                            : selectedPeriods.length > 3
+                            ? `${selectedPeriods.length} Periods`
+                            : selectedPeriods
+                                .map((p) => {
+                                  const [y, m] = p.split('-');
+                                  const mName = months.find((mo) => mo.value === parseInt(m, 10))?.label.substring(0, 3);
+                                  return `${mName} ${y}`;
+                                })
+                                .join(', ')
+                        }
                       </p>
                     </div>
                   </div>
+                </div>
 
                   {/* Right Columns: Interactive Monthly Expenses Donut Chart */}
                   <div className="lg:col-span-2">
@@ -460,62 +796,152 @@ export default function DashboardPage() {
               )}
             </div>
 
-            {/* Partner Financial Summary Table */}
-            <div className="glass-card p-6 rounded-2xl border border-slate-800 w-full overflow-hidden">
-              <div className="flex items-center justify-between mb-4">
+            {/* Month-wise Partner Breakdown Accordion Table */}
+            <MonthlyPartnerBreakdownTable
+              breakdown={data.monthlyBreakdown || []}
+              months={months}
+              formatCurrency={formatCurrency}
+              onDrilldown={handleDrilldown}
+            />
+
+            {/* Partner Financial Summary Cards */}
+            <div className="space-y-4 w-full">
+              <div>
                 <h3 className="text-lg font-bold text-white">Partner Financial Summary</h3>
-                <span className="text-xs text-slate-400">Dynamic breakdown per partner</span>
+                <p className="text-xs text-slate-400 mt-0.5">Comparative summary of partner settlements for the selected period</p>
               </div>
-              <div className="overflow-x-auto w-full">
-                <table className="min-w-full divide-y divide-slate-800 text-sm whitespace-nowrap">
-                  <thead>
-                    <tr className="text-slate-400 text-left font-semibold">
-                      <th className="pb-3 pr-4">Partner</th>
-                      {viewType === 'monthly' && <th className="pb-3 px-4 text-right">Ownership %</th>}
-                      <th className="pb-3 px-4 text-right">Salary Paid Personally</th>
-                      <th className="pb-3 px-4 text-right">Salary Received (Client Direct)</th>
-                      <th className="pb-3 px-4 text-right">Company Expenses Paid</th>
-                      <th className="pb-3 px-4 text-right">Project Income Received</th>
-                      <th className="pb-3 px-4 text-right text-amber-400">Total Money Received</th>
-                      <th className="pb-3 px-4 text-right">Profit Share</th>
-                      <th className="pb-3 px-4 text-right text-emerald-500">Other Credits</th>
-                      <th className="pb-3 px-4 text-right text-rose-500">Other Debits</th>
-                      <th className="pb-3 pl-6 text-right bg-slate-900/60 rounded-t-lg">Final Settlement</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {(partnerSettlement ? [partnerSettlement] : data.partnerSettlements || []).map((p: any) => (
-                      <tr key={p.partnerId} className="text-slate-300 hover:bg-slate-800/10">
-                        <td className="py-4 pr-4 font-semibold text-white">{p.partnerName}</td>
-                        {viewType === 'monthly' && (
-                          <td className="py-4 px-4 text-right font-medium text-cyan-400">
-                            {p.ownershipPercentage?.toFixed(2)}%
-                          </td>
-                        )}
-                        <td className="py-4 px-4 text-right text-slate-400">{formatCurrency(p.salariesPaid)}</td>
-                        <td className="py-4 px-4 text-right text-slate-400">{formatCurrency(p.clientDirectSalaryReceived)}</td>
-                        <td className="py-4 px-4 text-right text-slate-400">{formatCurrency(p.expensesPaid)}</td>
-                        <td className="py-4 px-4 text-right text-slate-400">{formatCurrency(p.companyMoneyReceived)}</td>
-                        <td className="py-4 px-4 text-right text-amber-400 font-medium">{formatCurrency(p.totalCompanyMoneyReceived)}</td>
-                        <td className="py-4 px-4 text-right">{formatCurrency(p.profitShare)}</td>
-                        <td className="py-4 px-4 text-right text-emerald-400">+{formatCurrency(p.credits)}</td>
-                        <td className="py-4 px-4 text-right text-rose-500">-{formatCurrency(p.debits)}</td>
-                        <td className={`py-4 pl-6 text-right font-bold text-base bg-slate-900/50 border-l border-slate-800 rounded-b-lg ${
-                          p.netBalance >= 0 ? 'text-emerald-400' : 'text-rose-500'
-                        }`}>
-                          <span className="flex items-center justify-end space-x-1">
-                            {p.netBalance >= 0 ? (
-                              <ArrowUpRight className="h-4 w-4 text-emerald-400" />
-                            ) : (
-                              <ArrowDownLeft className="h-4 w-4 text-rose-500" />
-                            )}
-                            <span>{formatCurrency(p.netBalance)}</span>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+                {(partnerSettlement ? [partnerSettlement] : data.partnerSettlements || []).map((p: any) => {
+                  const isReceivable = p.netBalance >= 0;
+                  const drilldownPeriods = viewType === 'yearly'
+                    ? Array.from({ length: 12 }, (_, i) => `${selectedYear}-${String(i + 1).padStart(2, '0')}`)
+                    : selectedPeriods;
+
+                  return (
+                    <div
+                      key={p.partnerId}
+                      className="glass-card rounded-2xl border border-slate-800 bg-slate-900/10 flex flex-col justify-between overflow-hidden shadow-lg"
+                    >
+                      {/* Card Header */}
+                      <div className="p-5 border-b border-slate-800/80 bg-slate-950/20 flex items-center justify-between">
+                        <h4 className="text-base font-bold text-white flex items-center">
+                          <span className="h-2.5 w-2.5 rounded-full bg-cyan-400 mr-2" />
+                          {p.partnerName}
+                        </h4>
+                        {p.ownershipPercentage !== undefined && (
+                          <span className="text-xs font-semibold px-2.5 py-0.5 rounded bg-slate-800 border border-slate-700/60 text-cyan-400">
+                            Ownership: {p.ownershipPercentage?.toFixed(2)}%
                           </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        )}
+                      </div>
+
+                      {/* Card Body */}
+                      <div className="p-5 flex-1 space-y-5 text-sm">
+                        {/* Section 1: Earnings & Adjustments */}
+                        <div className="space-y-2.5">
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-450 border-b border-slate-800/50 pb-1">
+                            Share & Adjustments
+                          </p>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'profit_share', drilldownPeriods)}
+                            className="flex justify-between text-slate-350 cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="Audit Profit Share breakdown"
+                          >
+                            <span>Profit Share:</span>
+                            <span className="font-semibold text-white group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">{formatCurrency(p.profitShare)}</span>
+                          </div>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'credits', drilldownPeriods)}
+                            className="flex justify-between text-slate-450 text-xs cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="View Credits adjustment ledger"
+                          >
+                            <span className="pl-3">Other Credits:</span>
+                            <span className="font-medium text-emerald-450 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">+{formatCurrency(p.credits)}</span>
+                          </div>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'debits', drilldownPeriods)}
+                            className="flex justify-between text-slate-450 text-xs cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="View Debits adjustment ledger"
+                          >
+                            <span className="pl-3">Other Debits:</span>
+                            <span className="font-medium text-rose-500 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">-{formatCurrency(p.debits)}</span>
+                          </div>
+                        </div>
+
+                        {/* Section 2: Out-of-pocket Spend */}
+                        <div className="space-y-2.5">
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-450 border-b border-slate-800/50 pb-1">
+                            Paid Personally (Reimbursable)
+                          </p>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'salaries_paid', drilldownPeriods)}
+                            className="flex justify-between text-slate-355 cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="View paid salaries list"
+                          >
+                            <span>Salaries Paid:</span>
+                            <span className="font-semibold text-white group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">+{formatCurrency(p.salariesPaid)}</span>
+                          </div>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'expenses_paid', drilldownPeriods)}
+                            className="flex justify-between text-slate-355 cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="View paid expenses list"
+                          >
+                            <span>Company Expenses:</span>
+                            <span className="font-semibold text-white group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">+{formatCurrency(p.expensesPaid)}</span>
+                          </div>
+                        </div>
+
+                        {/* Section 3: Money Received */}
+                        <div className="space-y-2.5 bg-slate-900/25 p-3.5 rounded-xl border border-slate-800/50">
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-450 border-b border-slate-800/30 pb-1">
+                            Received Income (Company Liabilities)
+                          </p>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'project_payments', drilldownPeriods)}
+                            className="flex justify-between text-slate-355 text-xs cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="View received project payments"
+                          >
+                            <span>Project Payments:</span>
+                            <span className="font-medium text-rose-450 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">-{formatCurrency(p.companyMoneyReceived)}</span>
+                          </div>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'client_direct', drilldownPeriods)}
+                            className="flex justify-between text-slate-355 text-xs cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="View received direct salaries"
+                          >
+                            <span>Client Direct Salary:</span>
+                            <span className="font-medium text-rose-455 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">-{formatCurrency(p.clientDirectSalaryReceived)}</span>
+                          </div>
+                          <div className="flex justify-between border-t border-slate-800/60 pt-2 text-slate-300 font-semibold mt-1">
+                            <span>Total Money Received:</span>
+                            <span className="text-amber-450">{formatCurrency(p.totalCompanyMoneyReceived)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card Footer Settlement Net Balance */}
+                      <div className={`p-4 text-sm font-bold flex items-center justify-between border-t border-slate-800/80 ${
+                        isReceivable ? 'bg-emerald-500/5 text-emerald-400' : 'bg-rose-500/5 text-rose-500'
+                      }`}>
+                        <span className="flex items-center space-x-1">
+                          {isReceivable ? (
+                            <>
+                              <ArrowUpRight className="h-4 w-4 text-emerald-400 mr-1" />
+                              <span>Receivable (Company Owed)</span>
+                            </>
+                          ) : (
+                            <>
+                              <ArrowDownLeft className="h-4 w-4 text-rose-500 mr-1" />
+                              <span>Payable (Partner Owed)</span>
+                            </>
+                          )}
+                        </span>
+                        <span className="text-lg font-extrabold">{formatCurrency(p.netBalance)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -569,6 +995,15 @@ export default function DashboardPage() {
           </div>
         ) : null}
       </div>
+
+      <DrilldownModal
+        isOpen={drilldownOpen}
+        onClose={() => setDrilldownOpen(false)}
+        partnerId={drilldownConfig.partnerId}
+        partnerName={drilldownConfig.partnerName}
+        periods={drilldownConfig.periods}
+        type={drilldownConfig.type}
+      />
     </SidebarLayout>
   );
 }

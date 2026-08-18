@@ -33,8 +33,7 @@ export interface MonthlyFinanceReport {
 }
 
 export interface MultiMonthFinanceReport {
-  year: number;
-  months: number[];
+  periods: { year: number; month: number }[];
   totalIncome: number;
   totalSalaries: number;
   totalExpenses: number;
@@ -44,6 +43,18 @@ export interface MultiMonthFinanceReport {
   paidDirectlyByClients: number;
   partnerSettlements: PartnerMonthlySettlement[];
   expensesByCategory: { category: string; amount: number }[];
+  monthlyBreakdown: {
+    year: number;
+    month: number;
+    totalIncome: number;
+    totalSalaries: number;
+    totalExpenses: number;
+    netProfit: number;
+    paidByCompany: number;
+    paidByPartners: number;
+    paidDirectlyByClients: number;
+    partnerSettlements: PartnerMonthlySettlement[];
+  }[];
 }
 
 export interface YearlyFinanceReport {
@@ -64,6 +75,7 @@ export interface YearlyFinanceReport {
     paidByCompany: number;
     paidByPartners: number;
     paidDirectlyByClients: number;
+    partnerSettlements: PartnerMonthlySettlement[];
   }[];
   partnerSettlements: {
     partnerId: string;
@@ -437,6 +449,7 @@ export async function getYearlyFinanceReport(
         paidByCompany: 0,
         paidByPartners: 0,
         paidDirectlyByClients: 0,
+        partnerSettlements: r.partnerSettlements,
       };
     }
     return {
@@ -448,6 +461,7 @@ export async function getYearlyFinanceReport(
       paidByCompany: r.paidByCompany,
       paidByPartners: r.paidByPartners,
       paidDirectlyByClients: r.paidDirectlyByClients,
+      partnerSettlements: r.partnerSettlements,
     };
   });
 
@@ -538,10 +552,30 @@ export async function getYearlyFinanceReport(
 
 export async function getMultiMonthFinanceReport(
   companyId: string,
-  year: number,
-  months: number[],
+  periods: { year: number; month: number }[],
   partnerId?: string
 ): Promise<MultiMonthFinanceReport> {
+  if (!periods || periods.length === 0) {
+    return {
+      periods: [],
+      totalIncome: 0,
+      totalSalaries: 0,
+      totalExpenses: 0,
+      netProfit: 0,
+      paidByCompany: 0,
+      paidByPartners: 0,
+      paidDirectlyByClients: 0,
+      partnerSettlements: [],
+      expensesByCategory: [],
+      monthlyBreakdown: [],
+    };
+  }
+
+  const orConditions = periods.map((p) => ({
+    applicableYear: p.year,
+    applicableMonth: p.month,
+  }));
+
   const [partners, setups, payments, salaries, expenses, adjustments] = await Promise.all([
     prisma.partner.findMany({
       where: { companyId },
@@ -560,45 +594,44 @@ export async function getMultiMonthFinanceReport(
     prisma.projectPayment.findMany({
       where: {
         companyId,
-        applicableYear: year,
+        OR: orConditions,
         deletedAt: null,
       },
     }),
     prisma.employeeSalary.findMany({
       where: {
         companyId,
-        applicableYear: year,
+        OR: orConditions,
         deletedAt: null,
       },
     }),
     prisma.companyExpense.findMany({
       where: {
         companyId,
-        applicableYear: year,
+        OR: orConditions,
         deletedAt: null,
       },
     }),
     prisma.partnerAdjustment.findMany({
       where: {
         companyId,
-        applicableYear: year,
+        OR: orConditions,
         deletedAt: null,
       },
     }),
   ]);
 
-  const preFetchedData: PreFetchedFinanceData = {
-    partners,
-    setups,
-    payments,
-    salaries,
-    expenses,
-    adjustments,
-  };
-
   const monthlyReports: MonthlyFinanceReport[] = [];
-  for (const m of months) {
-    const r = await getMonthlyFinanceReport(companyId, year, m, partnerId, preFetchedData);
+  for (const p of periods) {
+    const monthPrefetched: PreFetchedFinanceData = {
+      partners,
+      setups,
+      payments: payments.filter((x) => x.applicableYear === p.year && x.applicableMonth === p.month),
+      salaries: salaries.filter((x) => x.applicableYear === p.year && x.applicableMonth === p.month),
+      expenses: expenses.filter((x) => x.applicableYear === p.year && x.applicableMonth === p.month),
+      adjustments: adjustments.filter((x) => x.applicableYear === p.year && x.applicableMonth === p.month),
+    };
+    const r = await getMonthlyFinanceReport(companyId, p.year, p.month, partnerId, monthPrefetched);
     monthlyReports.push(r);
   }
 
@@ -671,9 +704,21 @@ export async function getMultiMonthFinanceReport(
     .map(([category, amount]) => ({ category, amount }))
     .sort((a, b) => b.amount - a.amount);
 
+  const monthlyBreakdown = monthlyReports.map((r) => ({
+    year: r.year,
+    month: r.month,
+    totalIncome: r.totalIncome,
+    totalSalaries: r.totalSalaries,
+    totalExpenses: r.totalExpenses,
+    netProfit: r.netProfit,
+    paidByCompany: r.paidByCompany,
+    paidByPartners: r.paidByPartners,
+    paidDirectlyByClients: r.paidDirectlyByClients,
+    partnerSettlements: r.partnerSettlements,
+  }));
+
   return {
-    year,
-    months,
+    periods,
     totalIncome,
     totalSalaries,
     totalExpenses,
@@ -683,5 +728,6 @@ export async function getMultiMonthFinanceReport(
     paidDirectlyByClients,
     partnerSettlements,
     expensesByCategory,
+    monthlyBreakdown,
   };
 }

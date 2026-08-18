@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import SidebarLayout from '@/components/SidebarLayout';
 import { useAuth } from '@/context/AuthContext';
 import { Plus, Edit2, Trash2, ShieldAlert, CheckCircle2 } from 'lucide-react';
@@ -31,6 +31,8 @@ export default function PartnersPage() {
   const [setups, setSetups] = useState<OwnershipSetup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const abortControllerPartnersRef = useRef<AbortController | null>(null);
+  const abortControllerSetupsRef = useRef<AbortController | null>(null);
   
   // Partner Form State
   const [showPartnerModal, setShowPartnerModal] = useState(false);
@@ -45,32 +47,55 @@ export default function PartnersPage() {
   const [effectiveDate, setEffectiveDate] = useState('');
   const [percentages, setPercentages] = useState<Record<string, string>>({}); // partnerId -> percentage (string input)
 
-  const fetchPartners = async () => {
+  const fetchPartners = async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/partners');
+      const res = await fetch('/api/partners', { signal });
       if (!res.ok) throw new Error('Failed to fetch partners');
       const data = await res.json();
       setPartners(data);
     } catch (err: any) {
-      setError(err.message);
+      if (err.name !== 'AbortError') {
+        setError(err.message);
+      }
     }
   };
 
-  const fetchSetups = async () => {
+  const fetchSetups = async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/partners/ownership-setup');
+      const res = await fetch('/api/partners/ownership-setup', { signal });
       if (!res.ok) throw new Error('Failed to fetch ownership setups');
       const data = await res.json();
       setSetups(data);
     } catch (err: any) {
-      setError(err.message);
+      if (err.name !== 'AbortError') {
+        setError(err.message);
+      }
     }
   };
 
   const loadAll = async () => {
+    if (abortControllerPartnersRef.current) {
+      abortControllerPartnersRef.current.abort();
+    }
+    if (abortControllerSetupsRef.current) {
+      abortControllerSetupsRef.current.abort();
+    }
+
+    const controllerPartners = new AbortController();
+    const controllerSetups = new AbortController();
+
+    abortControllerPartnersRef.current = controllerPartners;
+    abortControllerSetupsRef.current = controllerSetups;
+
     setLoading(true);
-    await Promise.all([fetchPartners(), fetchSetups()]);
-    setLoading(false);
+    await Promise.all([
+      fetchPartners(controllerPartners.signal),
+      fetchSetups(controllerSetups.signal)
+    ]);
+    
+    if (abortControllerPartnersRef.current === controllerPartners && abortControllerSetupsRef.current === controllerSetups) {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -78,6 +103,17 @@ export default function PartnersPage() {
       loadAll();
     }
   }, [user]);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerPartnersRef.current) {
+        abortControllerPartnersRef.current.abort();
+      }
+      if (abortControllerSetupsRef.current) {
+        abortControllerSetupsRef.current.abort();
+      }
+    };
+  }, []);
 
   // Handle Partner Submit
   const handlePartnerSubmit = async (e: React.FormEvent) => {

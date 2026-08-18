@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import SidebarLayout from '@/components/SidebarLayout';
 import { useAuth } from '@/context/AuthContext';
 import { Plus, Edit2, Trash2, Calendar, User } from 'lucide-react';
@@ -26,6 +26,7 @@ export default function AdjustmentsPage() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
@@ -47,12 +48,18 @@ export default function AdjustmentsPage() {
   ];
 
   const loadData = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     setError('');
     try {
       const [resAdj, resPart] = await Promise.all([
-        fetch('/api/adjustments'),
-        fetch('/api/partners'),
+        fetch('/api/adjustments', { signal: controller.signal }),
+        fetch('/api/partners', { signal: controller.signal }),
       ]);
 
       if (!resAdj.ok || !resPart.ok) {
@@ -65,9 +72,13 @@ export default function AdjustmentsPage() {
       setAdjustments(adjs);
       setPartners(parts.filter((p: any) => p.isActive));
     } catch (err: any) {
-      setError(err.message);
+      if (err.name !== 'AbortError') {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
@@ -76,6 +87,14 @@ export default function AdjustmentsPage() {
       loadData();
     }
   }, [user]);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -163,7 +182,7 @@ export default function AdjustmentsPage() {
   };
 
   const formatCurrency = (val: any) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(val));
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(Number(val));
   };
 
   const formatDate = (dateStr: string) => {
@@ -337,7 +356,7 @@ export default function AdjustmentsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Amount ($)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Amount (₹)</label>
                   <input
                     type="number"
                     step="0.01"

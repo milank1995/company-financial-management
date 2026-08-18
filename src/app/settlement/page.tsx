@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import SidebarLayout from '@/components/SidebarLayout';
 import { useAuth } from '@/context/AuthContext';
 import { Calendar, CalendarDays, RefreshCw, AlertCircle, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import DrilldownModal from '@/components/DrilldownModal';
 
 interface SettlementItem {
   partnerId: string;
@@ -26,11 +27,39 @@ export default function SettlementPage() {
   const { user } = useAuth();
   const [viewType, setViewType] = useState<'monthly' | 'yearly'>('monthly');
   const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [selectedMonths, setSelectedMonths] = useState<number[]>([8]); // August
+  const [selectedPeriods, setSelectedPeriods] = useState<string[]>(['2026-08']); // default to August 2026
   const [monthsDropdownOpen, setMonthsDropdownOpen] = useState(false);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Drilldown Modal States
+  const [drilldownOpen, setDrilldownOpen] = useState(false);
+  const [drilldownConfig, setDrilldownConfig] = useState<{
+    partnerId?: string;
+    partnerName?: string;
+    type: 'profit_share' | 'salaries_paid' | 'expenses_paid' | 'client_direct' | 'project_payments' | 'adjustments' | 'credits' | 'debits';
+    periods: string[];
+  }>({
+    type: 'profit_share',
+    periods: [],
+  });
+
+  const handleDrilldown = (
+    partnerId: string,
+    partnerName: string,
+    type: any,
+    periods: string[]
+  ) => {
+    setDrilldownConfig({
+      partnerId,
+      partnerName,
+      type,
+      periods,
+    });
+    setDrilldownOpen(true);
+  };
 
   const years = [2024, 2025, 2026, 2027, 2028];
   const months = [
@@ -48,34 +77,61 @@ export default function SettlementPage() {
     { value: 12, label: 'December' },
   ];
 
-  const toggleMonth = (mVal: number) => {
-    setSelectedMonths((prev) => {
-      if (prev.includes(mVal)) {
+  const togglePeriod = (periodStr: string) => {
+    setSelectedPeriods((prev) => {
+      if (prev.includes(periodStr)) {
         if (prev.length === 1) return prev;
-        return prev.filter((m) => m !== mVal);
+        return prev.filter((p) => p !== periodStr);
       } else {
-        return [...prev, mVal].sort((a, b) => a - b);
+        return [...prev, periodStr].sort();
+      }
+    });
+  };
+
+  const toggleYearAll = (year: number) => {
+    const yearPeriods = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
+    setSelectedPeriods((prev) => {
+      const hasAll = yearPeriods.every((p) => selectedPeriods.includes(p));
+      if (hasAll) {
+        const remaining = prev.filter((p) => !yearPeriods.includes(p));
+        if (remaining.length === 0) {
+          return [`${year}-01`].sort();
+        }
+        return remaining.sort();
+      } else {
+        const union = Array.from(new Set([...prev, ...yearPeriods]));
+        return union.sort();
       }
     });
   };
 
   const fetchData = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     setError('');
     const url =
       viewType === 'monthly'
-        ? `/api/dashboard/monthly?year=${selectedYear}&month=${selectedMonths.join(',')}`
+        ? `/api/dashboard/monthly?periods=${selectedPeriods.join(',')}`
         : `/api/dashboard/yearly?year=${selectedYear}`;
 
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: controller.signal });
       if (!res.ok) throw new Error('Failed to fetch settlement data');
       const json = await res.json();
       setData(json);
     } catch (err: any) {
-      setError(err.message);
+      if (err.name !== 'AbortError') {
+        setError(err.message);
+      }
     } finally {
-      setLoading(false);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
@@ -83,10 +139,18 @@ export default function SettlementPage() {
     if (user) {
       fetchData();
     }
-  }, [user, viewType, selectedYear, selectedMonths]);
+  }, [user, viewType, selectedYear, selectedPeriods]);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(val);
   };
 
   return (
@@ -98,17 +162,29 @@ export default function SettlementPage() {
             <h1 className="text-3xl font-bold tracking-tight text-white">Partner Settlement</h1>
             <p className="text-slate-400 mt-1">
               {viewType === 'monthly'
-                ? `Calculated net balances for ${selectedMonths.length === 12 ? 'Year' : selectedMonths.map(m => months.find(mo => mo.value === m)?.label.substring(0, 3)).join(', ')} ${selectedYear}`
+                ? `Calculated net balances for ${
+                    selectedPeriods.length === 0
+                      ? 'No periods selected'
+                      : selectedPeriods.length > 3
+                      ? `${selectedPeriods.length} Periods`
+                      : selectedPeriods
+                          .map((p) => {
+                            const [y, m] = p.split('-');
+                            const mName = months.find((mo) => mo.value === parseInt(m, 10))?.label.substring(0, 3);
+                            return `${mName} ${y}`;
+                          })
+                          .join(', ')
+                  }`
                 : `Aggregated year-to-date settlements for ${selectedYear}`}
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 w-full md:w-auto">
             {/* View Type Toggle */}
-            <div className="bg-[#0f172a] p-1 rounded-lg border border-[#1e293b] flex">
+            <div className="bg-[#0f172a] p-1 rounded-lg border border-[#1e293b] flex w-full md:w-auto">
               <button
                 onClick={() => setViewType('monthly')}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
+                className={`flex-1 md:flex-initial px-3 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
                   viewType === 'monthly'
                     ? 'bg-cyan-500 text-black shadow-md'
                     : 'text-slate-400 hover:text-slate-200'
@@ -118,7 +194,7 @@ export default function SettlementPage() {
               </button>
               <button
                 onClick={() => setViewType('yearly')}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
+                className={`flex-1 md:flex-initial px-3 py-1.5 text-xs font-semibold rounded-md transition-all duration-200 ${
                   viewType === 'yearly'
                     ? 'bg-cyan-500 text-black shadow-md'
                     : 'text-slate-400 hover:text-slate-200'
@@ -128,76 +204,121 @@ export default function SettlementPage() {
               </button>
             </div>
 
-            {/* Year Selector */}
-            <div className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-2 py-1">
-              <Calendar className="h-4 w-4 text-slate-400" />
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
-                className="bg-transparent text-white text-sm focus:outline-none border-none pr-6 py-1"
-              >
-                {years.map((y) => (
-                  <option key={y} value={y} className="bg-[#0f172a] text-white">
-                    {y}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Year Selector (only for yearly view) */}
+            {viewType === 'yearly' && (
+              <div className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-1.5 w-full md:w-auto justify-between md:justify-start">
+                <div className="flex items-center space-x-1.5">
+                  <Calendar className="h-4 w-4 text-slate-400" />
+                  <span className="text-sm text-slate-400 md:hidden">Year</span>
+                </div>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                  className="bg-transparent text-white text-sm focus:outline-none border-none pr-6 py-0.5 md:w-auto text-right md:text-left"
+                >
+                  {years.map((y) => (
+                    <option key={y} value={y} className="bg-[#0f172a] text-white">
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-            {/* Month Selector (only for monthly view) */}
+            {/* Unified Cross-Year Period Selector (only for monthly view) */}
             {viewType === 'monthly' && (
-              <div className="relative">
+              <div className="relative w-full md:w-auto">
                 <button
                   type="button"
                   onClick={() => setMonthsDropdownOpen(!monthsDropdownOpen)}
-                  className="flex items-center space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2 text-white text-sm hover:bg-[#1e293b] transition-colors"
+                  className="flex items-center justify-between md:justify-start space-x-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg px-3 py-2.5 md:py-2 text-white text-sm hover:bg-[#1e293b] transition-colors w-full md:w-auto"
                 >
-                  <CalendarDays className="h-4 w-4 text-slate-400" />
+                  <div className="flex items-center space-x-1.5">
+                    <CalendarDays className="h-4 w-4 text-slate-400" />
+                    <span className="md:hidden text-slate-400">Periods</span>
+                  </div>
                   <span>
-                    {selectedMonths.length === 12
-                      ? 'All Months'
-                      : selectedMonths.length === 0
-                      ? 'Select Month'
-                      : selectedMonths.map((m) => months.find((mo) => mo.value === m)?.label.substring(0, 3)).join(', ')}
+                    {selectedPeriods.length === 0
+                      ? 'Select Periods'
+                      : selectedPeriods.length > 3
+                      ? `${selectedPeriods.length} Periods`
+                      : selectedPeriods
+                          .map((p) => {
+                            const [y, m] = p.split('-');
+                            const mName = months.find((mo) => mo.value === parseInt(m, 10))?.label.substring(0, 3);
+                            return `${mName} ${y}`;
+                          })
+                          .join(', ')}
                   </span>
                 </button>
 
                 {monthsDropdownOpen && (
                   <>
-                    <div className="fixed inset-0 z-10" onClick={() => setMonthsDropdownOpen(false)} />
-                    <div className="absolute right-0 mt-2 w-48 bg-[#0b0f19] border border-slate-800 rounded-xl shadow-xl z-20 p-3 space-y-2">
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
-                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Months</span>
+                    {/* mobile backdrop overlay */}
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-20 md:hidden animate-fade-in" onClick={() => setMonthsDropdownOpen(false)} />
+                    {/* desktop click outside overlay */}
+                    <div className="fixed inset-0 z-10 hidden md:block" onClick={() => setMonthsDropdownOpen(false)} />
+                    
+                    <div className="fixed bottom-4 inset-x-4 max-h-[80vh] md:absolute md:bottom-auto md:inset-x-auto md:right-0 md:mt-2 md:w-80 bg-[#0b0f19] border border-slate-800 rounded-xl shadow-2xl z-30 p-4 space-y-4 md:max-h-[450px] overflow-y-auto animate-fade-in">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Select Periods</span>
                         <button
                           type="button"
                           onClick={() => {
-                            if (selectedMonths.length === 12) {
-                              setSelectedMonths([new Date().getMonth() + 1]);
-                            } else {
-                              setSelectedMonths([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-                            }
+                            setSelectedPeriods(['2026-08']);
                           }}
                           className="text-[10px] text-cyan-400 hover:text-cyan-300 font-medium"
                         >
-                          {selectedMonths.length === 12 ? 'Clear All' : 'Select All'}
+                          Reset
                         </button>
                       </div>
-                      <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
-                        {months.map((m) => {
-                          const isChecked = selectedMonths.includes(m.value);
+                      
+                      <div className="space-y-4">
+                        {years.map((y) => {
+                          const yearPeriods = Array.from({ length: 12 }, (_, i) => `${y}-${String(i + 1).padStart(2, '0')}`);
+                          const hasAll = yearPeriods.every((p) => selectedPeriods.includes(p));
+                          const hasSome = yearPeriods.some((p) => selectedPeriods.includes(p)) && !hasAll;
+                          
                           return (
-                            <label
-                              key={m.value}
-                              className="flex items-center space-x-2 text-sm text-slate-355 hover:text-white cursor-pointer select-none py-0.5"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={() => toggleMonth(m.value)}
-                                className="rounded border-slate-800 bg-slate-900 text-cyan-500 focus:ring-cyan-500/25 h-4 w-4"
-                              />
-                              <span>{m.label}</span>
-                            </label>
+                            <div key={y} className="space-y-2 border-b border-slate-800/40 pb-3 last:border-0 last:pb-0">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-bold text-white">{y}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleYearAll(y)}
+                                  className={`text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
+                                    hasAll
+                                      ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                                      : hasSome
+                                      ? 'bg-slate-800 text-slate-300 border-slate-700/60'
+                                      : 'text-slate-400 hover:text-white border-transparent'
+                                  }`}
+                                >
+                                  {hasAll ? 'Deselect All' : 'Select All'}
+                                </button>
+                              </div>
+                              
+                              <div className="grid grid-cols-4 gap-1.5">
+                                {months.map((m) => {
+                                  const pStr = `${y}-${String(m.value).padStart(2, '0')}`;
+                                  const isChecked = selectedPeriods.includes(pStr);
+                                  return (
+                                    <button
+                                      key={m.value}
+                                      type="button"
+                                      onClick={() => togglePeriod(pStr)}
+                                      className={`px-1.5 py-1 text-[11px] font-medium rounded border text-center transition-all ${
+                                        isChecked
+                                          ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 font-bold'
+                                          : 'bg-[#0f172a]/40 text-slate-400 border-transparent hover:text-white hover:bg-slate-800/30'
+                                      }`}
+                                    >
+                                      {m.label.substring(0, 3)}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
                           );
                         })}
                       </div>
@@ -209,7 +330,7 @@ export default function SettlementPage() {
 
             <button
               onClick={fetchData}
-              className="p-2 bg-slate-800 text-slate-300 rounded-lg hover:text-white border border-slate-700 hover:bg-slate-700 transition-colors"
+              className="p-2.5 md:p-2 bg-slate-800 text-slate-300 rounded-lg hover:text-white border border-slate-700 hover:bg-slate-750 transition-colors flex items-center justify-center w-full md:w-10 h-10"
               title="Recalculate Ledger"
             >
               <RefreshCw className="h-4 w-4" />
@@ -249,7 +370,7 @@ export default function SettlementPage() {
                 <h3 className="text-lg font-bold text-white">Detailed Partner Settlement Ledger</h3>
                 <span className="text-xs text-slate-400">Calculated Dynamically from Transactions</span>
               </div>
-              <div className="overflow-x-auto">
+              <div className="hidden lg:block overflow-x-auto">
                 <table className="min-w-full divide-y divide-slate-800 text-sm whitespace-nowrap">
                   <thead>
                     <tr className="text-slate-400 text-left font-semibold">
@@ -265,40 +386,172 @@ export default function SettlementPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {data.partnerSettlements?.map((p: SettlementItem) => (
-                      <tr key={p.partnerId} className="text-slate-300 hover:bg-slate-800/10">
-                        <td className="py-4 pr-4 font-semibold text-white">{p.partnerName}</td>
-                        {viewType === 'monthly' && (
-                          <td className="py-4 px-4 text-right font-medium text-cyan-400">
-                            {p.ownershipPercentage?.toFixed(2)}%
+                    {data.partnerSettlements?.map((p: SettlementItem) => {
+                      const drilldownPeriods = viewType === 'yearly'
+                        ? Array.from({ length: 12 }, (_, i) => `${selectedYear}-${String(i + 1).padStart(2, '0')}`)
+                        : selectedPeriods;
+
+                      return (
+                        <tr key={p.partnerId} className="text-slate-300 hover:bg-slate-800/10">
+                          <td className="py-4 pr-4 font-semibold text-white">{p.partnerName}</td>
+                          {viewType === 'monthly' && (
+                            <td className="py-4 px-4 text-right font-medium text-cyan-400">
+                              {p.ownershipPercentage?.toFixed(2)}%
+                            </td>
+                          )}
+                          <td 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'profit_share', drilldownPeriods)}
+                            className="py-4 px-4 text-right cursor-pointer hover:text-cyan-400 font-semibold underline decoration-dotted decoration-slate-700"
+                            title="Audit Profit Share breakdown"
+                          >
+                            {formatCurrency(p.profitShare)}
                           </td>
-                        )}
-                        <td className="py-4 px-4 text-right">{formatCurrency(p.profitShare)}</td>
-                        <td className="py-4 px-4 text-right text-slate-400">{formatCurrency(p.salariesPaid)}</td>
-                        <td className="py-4 px-4 text-right text-slate-400">{formatCurrency(p.expensesPaid)}</td>
-                        <td className={`py-4 px-4 text-right ${p.netAdjustment >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}>
-                          {p.netAdjustment >= 0 ? '+' : ''}{formatCurrency(p.netAdjustment)}
-                        </td>
-                        <td className="py-4 px-4 text-right text-orange-400">{formatCurrency(p.clientDirectSalaryReceived)}</td>
-                        <td className="py-4 px-4 text-right bg-slate-900/30 text-amber-400 font-semibold border-l border-slate-850">
-                          {formatCurrency(p.totalCompanyMoneyReceived)}
-                        </td>
-                        <td className={`py-4 pl-6 text-right font-bold text-base bg-slate-900/50 border-l border-slate-800 rounded-b-lg ${
-                          p.netBalance >= 0 ? 'text-emerald-400' : 'text-rose-500'
-                        }`}>
-                          <span className="flex items-center justify-end space-x-1">
-                            {p.netBalance >= 0 ? (
-                              <ArrowUpRight className="h-4 w-4 text-emerald-400" />
-                            ) : (
-                              <ArrowDownLeft className="h-4 w-4 text-rose-500" />
-                            )}
-                            <span>{formatCurrency(p.netBalance)}</span>
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                          <td 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'salaries_paid', drilldownPeriods)}
+                            className="py-4 px-4 text-right text-slate-400 cursor-pointer hover:text-cyan-400 underline decoration-dotted decoration-slate-700"
+                            title="View paid salaries list"
+                          >
+                            {formatCurrency(p.salariesPaid)}
+                          </td>
+                          <td 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'expenses_paid', drilldownPeriods)}
+                            className="py-4 px-4 text-right text-slate-400 cursor-pointer hover:text-cyan-400 underline decoration-dotted decoration-slate-700"
+                            title="View paid expenses list"
+                          >
+                            {formatCurrency(p.expensesPaid)}
+                          </td>
+                          <td 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'adjustments', drilldownPeriods)}
+                            className={`py-4 px-4 text-right cursor-pointer hover:text-cyan-400 underline decoration-dotted decoration-slate-700 ${p.netAdjustment >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}
+                            title="View adjustments ledger"
+                          >
+                            {p.netAdjustment >= 0 ? '+' : ''}{formatCurrency(p.netAdjustment)}
+                          </td>
+                          <td 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'client_direct', drilldownPeriods)}
+                            className="py-4 px-4 text-right text-orange-400 cursor-pointer hover:text-cyan-400 underline decoration-dotted decoration-slate-700"
+                            title="View received direct salaries"
+                          >
+                            {formatCurrency(p.clientDirectSalaryReceived)}
+                          </td>
+                          <td 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'project_payments', drilldownPeriods)}
+                            className="py-4 px-4 text-right bg-slate-900/30 text-amber-400 font-semibold border-l border-slate-850 cursor-pointer hover:text-cyan-400 underline decoration-dotted decoration-slate-700"
+                            title="View received project payments"
+                          >
+                            {formatCurrency(p.totalCompanyMoneyReceived)}
+                          </td>
+                          <td className={`py-4 pl-6 text-right font-bold text-base bg-slate-900/50 border-l border-slate-800 rounded-b-lg ${
+                            p.netBalance >= 0 ? 'text-emerald-400' : 'text-rose-500'
+                          }`}>
+                            <span className="flex items-center justify-end space-x-1">
+                              {p.netBalance >= 0 ? (
+                                <ArrowUpRight className="h-4 w-4 text-emerald-400" />
+                              ) : (
+                                <ArrowDownLeft className="h-4 w-4 text-rose-500" />
+                              )}
+                              <span>{formatCurrency(p.netBalance)}</span>
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Mobile Card Ledger Layout */}
+              <div className="lg:hidden space-y-4">
+                {data.partnerSettlements?.map((p: SettlementItem) => {
+                  const isReceivable = p.netBalance >= 0;
+                  const drilldownPeriods = viewType === 'yearly'
+                    ? Array.from({ length: 12 }, (_, i) => `${selectedYear}-${String(i + 1).padStart(2, '0')}`)
+                    : selectedPeriods;
+
+                  return (
+                    <div
+                      key={p.partnerId}
+                      className="border border-slate-800 rounded-xl p-4 bg-slate-950/20 space-y-3"
+                    >
+                      <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                        <span className="font-bold text-white text-base">{p.partnerName}</span>
+                        {viewType === 'monthly' && p.ownershipPercentage !== undefined && (
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-900 text-cyan-400 border border-slate-800">
+                            Ownership: {p.ownershipPercentage?.toFixed(2)}%
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs">
+                        <div 
+                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'profit_share', drilldownPeriods)}
+                          className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                          title="Audit Profit Share breakdown"
+                        >
+                          <span>Profit Share:</span>
+                          <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">{formatCurrency(p.profitShare)}</span>
+                        </div>
+                        <div 
+                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'salaries_paid', drilldownPeriods)}
+                          className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                          title="View paid salaries list"
+                        >
+                          <span>Salaries Paid:</span>
+                          <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">+{formatCurrency(p.salariesPaid)}</span>
+                        </div>
+                        <div 
+                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'expenses_paid', drilldownPeriods)}
+                          className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                          title="View paid expenses list"
+                        >
+                          <span>Expenses Paid:</span>
+                          <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">+{formatCurrency(p.expensesPaid)}</span>
+                        </div>
+                        <div 
+                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'adjustments', drilldownPeriods)}
+                          className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                          title="View adjustments ledger"
+                        >
+                          <span>Adjustments:</span>
+                          <span className={`font-semibold group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600 ${p.netAdjustment >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
+                            {p.netAdjustment >= 0 ? '+' : ''}{formatCurrency(p.netAdjustment)}
+                          </span>
+                        </div>
+                        
+                        <div 
+                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'client_direct', drilldownPeriods)}
+                          className="col-span-2 border-t border-slate-800/60 pt-2 flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                          title="View received direct salaries"
+                        >
+                          <span>Client Direct Salary:</span>
+                          <span className="font-semibold text-orange-400 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">{formatCurrency(p.clientDirectSalaryReceived)}</span>
+                        </div>
+                        <div 
+                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'project_payments', drilldownPeriods)}
+                          className="col-span-2 flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                          title="View received project payments"
+                        >
+                          <span>Total Money Received:</span>
+                          <span className="font-semibold text-amber-400 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">{formatCurrency(p.totalCompanyMoneyReceived)}</span>
+                        </div>
+                      </div>
+
+                      <div className={`border-t border-slate-800/80 pt-2 flex justify-between items-center text-sm font-bold ${
+                        isReceivable ? 'text-emerald-400' : 'text-rose-500'
+                      }`}>
+                        <span className="flex items-center space-x-1">
+                          {isReceivable ? (
+                            <ArrowUpRight className="h-4 w-4 text-emerald-400" />
+                          ) : (
+                            <ArrowDownLeft className="h-4 w-4 text-rose-500" />
+                          )}
+                          <span>{isReceivable ? 'Receivable' : 'Payable'}</span>
+                        </span>
+                        <span className="text-base font-extrabold">{formatCurrency(p.netBalance)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -357,6 +610,15 @@ export default function SettlementPage() {
           </div>
         ) : null}
       </div>
+
+      <DrilldownModal
+        isOpen={drilldownOpen}
+        onClose={() => setDrilldownOpen(false)}
+        partnerId={drilldownConfig.partnerId}
+        partnerName={drilldownConfig.partnerName}
+        periods={drilldownConfig.periods}
+        type={drilldownConfig.type}
+      />
     </SidebarLayout>
   );
 }
