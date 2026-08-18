@@ -23,6 +23,7 @@ export default function DrilldownModal({
   title
 }: DrilldownModalProps) {
   const [data, setData] = useState<any>(null);
+  const [settledPeriods, setSettledPeriods] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [profitTab, setProfitTab] = useState<'summary' | 'income' | 'salaries' | 'expenses' | 'ownership'>('summary');
@@ -32,6 +33,7 @@ export default function DrilldownModal({
   useEffect(() => {
     if (!isOpen) {
       setData(null);
+      setSettledPeriods([]);
       setError('');
       setLoading(true);
     }
@@ -42,6 +44,7 @@ export default function DrilldownModal({
 
     // Reset states
     setData(null);
+    setSettledPeriods([]);
     setError('');
     setProfitTab('summary');
     setLoading(true);
@@ -61,17 +64,24 @@ export default function DrilldownModal({
           queryParams.append('partnerId', partnerId);
         }
 
-        const res = await fetch(`/api/dashboard/drilldown?${queryParams.toString()}`, {
-          signal: abortControllerRef.current?.signal
-        });
+        const [res, resStatus] = await Promise.all([
+          fetch(`/api/dashboard/drilldown?${queryParams.toString()}`, {
+            signal: abortControllerRef.current?.signal
+          }),
+          fetch('/api/settlement/status', {
+            signal: abortControllerRef.current?.signal
+          })
+        ]);
         
-        if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.error || 'Failed to load details');
+        if (!res.ok || !resStatus.ok) {
+          throw new Error('Failed to load details');
         }
 
         const details = await res.json();
+        const statuses = await resStatus.json();
+        
         setData(details);
+        setSettledPeriods(statuses);
       } catch (err: any) {
         if (err.name !== 'AbortError') {
           setError(err.message || 'Something went wrong');
@@ -99,6 +109,11 @@ export default function DrilldownModal({
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
     ];
     return `${monthNames[month - 1] || 'Month ' + month} ${year}`;
+  };
+
+  const isPeriodSettled = (month?: number, year?: number) => {
+    if (!month || !year) return false;
+    return settledPeriods.some((s) => s.year === year && s.month === month && s.isSettled);
   };
 
   const formatCurrency = (val: number) => {
@@ -393,16 +408,29 @@ export default function DrilldownModal({
                               <td colSpan={6} className="p-4 text-center text-slate-500">No project payments received during these periods.</td>
                             </tr>
                           ) : (
-                            (data.income || []).map((p: any) => (
-                              <tr key={p.id} className="hover:bg-slate-800/10">
-                                <td className="p-3">{formatDate(p.paymentDate)}</td>
-                                <td className="p-3 text-slate-400 font-medium">{formatPeriod(p.applicableMonth, p.applicableYear)}</td>
-                                <td className="p-3 font-semibold text-white">{p.project?.name || 'N/A'}</td>
-                                <td className="p-3 text-slate-400">{p.clientName || 'N/A'}</td>
-                                <td className="p-3 text-slate-400">{p.partner?.name || 'N/A'}</td>
-                                <td className="p-3 text-right text-emerald-400 font-medium">{formatCurrency(Number(p.amount))}</td>
-                              </tr>
-                            ))
+                            (data.income || []).map((p: any) => {
+                              const settled = isPeriodSettled(p.applicableMonth, p.applicableYear);
+                              return (
+                                <tr
+                                  key={p.id}
+                                  className={`transition-colors border-l-2 ${
+                                    settled
+                                      ? 'bg-slate-950/20 opacity-70 border-emerald-500/30 text-slate-450 select-none'
+                                      : 'hover:bg-slate-805/10 border-transparent text-slate-300'
+                                  }`}
+                                >
+                                  <td className="p-3">{formatDate(p.paymentDate)}</td>
+                                  <td className="p-3 font-medium">{formatPeriod(p.applicableMonth, p.applicableYear)}</td>
+                                  <td className={`p-3 font-semibold ${settled ? 'text-slate-400 font-normal' : 'text-white'}`}>{p.project?.name || 'N/A'}</td>
+                                  <td className="p-3 text-slate-400">{p.clientName || 'N/A'}</td>
+                                  <td className="p-3 text-slate-400">{p.partner?.name || 'N/A'}</td>
+                                  <td className={`p-3 text-right font-medium ${settled ? 'text-slate-400' : 'text-emerald-400'}`}>
+                                    {formatCurrency(Number(p.amount))}
+                                    {settled && <span className="text-emerald-550 text-[10px] ml-1 font-semibold" title="Settled">✓</span>}
+                                  </td>
+                                </tr>
+                              );
+                            })
                           )}
                         </tbody>
                       </table>
@@ -429,30 +457,43 @@ export default function DrilldownModal({
                               <td colSpan={6} className="p-4 text-center text-slate-500">No salary payments paid during these periods.</td>
                             </tr>
                           ) : (
-                            (data.salaries || []).map((s: any) => (
-                              <tr key={s.id} className="hover:bg-slate-800/10">
-                                <td className="p-3">{formatDate(s.paymentDate)}</td>
-                                <td className="p-3 text-slate-400 font-medium">{formatPeriod(s.applicableMonth, s.applicableYear)}</td>
-                                <td className="p-3 font-semibold text-white">{s.employee?.name || 'N/A'}</td>
-                                <td className="p-3">
-                                  <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                                    s.paymentSource === 'COMPANY' 
-                                      ? 'bg-blue-500/5 text-blue-450 border-blue-550/15'
-                                      : s.paymentSource === 'PARTNER'
-                                      ? 'bg-amber-500/5 text-amber-450 border-amber-550/15'
-                                      : 'bg-teal-500/5 text-teal-450 border-teal-550/15'
-                                  }`}>
-                                    {s.paymentSource}
-                                  </span>
-                                </td>
-                                <td className="p-3 text-slate-400">
-                                  {s.paymentSource === 'PARTNER' && `Partner: ${s.partner?.name || 'N/A'}`}
-                                  {s.paymentSource === 'CLIENT_DIRECT' && `Direct: ${s.receivedByPartner?.name || 'N/A'}`}
-                                  {s.paymentSource === 'COMPANY' && 'Company Funds'}
-                                </td>
-                                <td className="p-3 text-right text-rose-400 font-medium">-{formatCurrency(Number(s.amount))}</td>
-                              </tr>
-                            ))
+                            (data.salaries || []).map((s: any) => {
+                              const settled = isPeriodSettled(s.applicableMonth, s.applicableYear);
+                              return (
+                                <tr
+                                  key={s.id}
+                                  className={`transition-colors border-l-2 ${
+                                    settled
+                                      ? 'bg-slate-950/20 opacity-70 border-emerald-500/30 text-slate-450 select-none'
+                                      : 'hover:bg-slate-805/10 border-transparent text-slate-300'
+                                  }`}
+                                >
+                                  <td className="p-3">{formatDate(s.paymentDate)}</td>
+                                  <td className="p-3 font-medium">{formatPeriod(s.applicableMonth, s.applicableYear)}</td>
+                                  <td className={`p-3 font-semibold ${settled ? 'text-slate-400 font-normal' : 'text-white'}`}>{s.employee?.name || 'N/A'}</td>
+                                  <td className="p-3">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                                      s.paymentSource === 'COMPANY' 
+                                        ? 'bg-blue-500/5 text-blue-450 border-blue-550/15'
+                                        : s.paymentSource === 'PARTNER'
+                                        ? 'bg-amber-500/5 text-amber-450 border-amber-550/15'
+                                        : 'bg-teal-500/5 text-teal-450 border-teal-550/15'
+                                    }`}>
+                                      {s.paymentSource}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-slate-400">
+                                    {s.paymentSource === 'PARTNER' && `Partner: ${s.partner?.name || 'N/A'}`}
+                                    {s.paymentSource === 'CLIENT_DIRECT' && `Direct: ${s.receivedByPartner?.name || 'N/A'}`}
+                                    {s.paymentSource === 'COMPANY' && 'Company Funds'}
+                                  </td>
+                                  <td className={`p-3 text-right font-medium ${settled ? 'text-slate-450' : 'text-rose-400'}`}>
+                                    -{formatCurrency(Number(s.amount))}
+                                    {settled && <span className="text-emerald-550 text-[10px] ml-1 font-semibold" title="Settled">✓</span>}
+                                  </td>
+                                </tr>
+                              );
+                            })
                           )}
                         </tbody>
                       </table>
@@ -479,16 +520,29 @@ export default function DrilldownModal({
                               <td colSpan={6} className="p-4 text-center text-slate-500">No company expenses recorded during these periods.</td>
                             </tr>
                           ) : (
-                            (data.expenses || []).map((e: any) => (
-                              <tr key={e.id} className="hover:bg-slate-800/10">
-                                <td className="p-3">{formatDate(e.expenseDate)}</td>
-                                <td className="p-3 text-slate-400 font-medium">{formatPeriod(e.applicableMonth, e.applicableYear)}</td>
-                                <td className="p-3 font-semibold text-white">{e.description}</td>
-                                <td className="p-3 text-slate-400">{e.category}</td>
-                                <td className="p-3 text-slate-400">{e.partner?.name || 'N/A'}</td>
-                                <td className="p-3 text-right text-rose-400 font-medium">-{formatCurrency(Number(e.amount))}</td>
-                              </tr>
-                            ))
+                            (data.expenses || []).map((e: any) => {
+                              const settled = isPeriodSettled(e.applicableMonth, e.applicableYear);
+                              return (
+                                <tr
+                                  key={e.id}
+                                  className={`transition-colors border-l-2 ${
+                                    settled
+                                      ? 'bg-slate-950/20 opacity-70 border-emerald-500/30 text-slate-450 select-none'
+                                      : 'hover:bg-slate-805/10 border-transparent text-slate-300'
+                                  }`}
+                                >
+                                  <td className="p-3">{formatDate(e.expenseDate)}</td>
+                                  <td className="p-3 font-medium">{formatPeriod(e.applicableMonth, e.applicableYear)}</td>
+                                  <td className={`p-3 font-semibold ${settled ? 'text-slate-400 font-normal' : 'text-white'}`}>{e.description}</td>
+                                  <td className="p-3 text-slate-400">{e.category}</td>
+                                  <td className="p-3 text-slate-400">{e.partner?.name || 'N/A'}</td>
+                                  <td className={`p-3 text-right font-medium ${settled ? 'text-slate-450' : 'text-rose-400'}`}>
+                                    -{formatCurrency(Number(e.amount))}
+                                    {settled && <span className="text-emerald-550 text-[10px] ml-1 font-semibold" title="Settled">✓</span>}
+                                  </td>
+                                </tr>
+                              );
+                            })
                           )}
                         </tbody>
                       </table>
@@ -591,18 +645,27 @@ export default function DrilldownModal({
                               amtStyle = isPositive ? 'text-emerald-400' : 'text-rose-500';
                             }
 
+                            const settled = isPeriodSettled(item.applicableMonth, item.applicableYear);
                             return (
-                              <tr key={item.id} className="hover:bg-slate-800/10">
+                              <tr
+                                key={item.id}
+                                className={`transition-colors border-l-2 ${
+                                  settled
+                                    ? 'bg-slate-950/20 opacity-70 border-emerald-500/30 text-slate-450 select-none'
+                                    : 'hover:bg-slate-805/10 border-transparent text-slate-300'
+                                }`}
+                              >
                                 <td className="p-3.5 pl-4">{formatDate(date)}</td>
-                                <td className="p-3.5 text-slate-400 font-medium">{formatPeriod(item.applicableMonth, item.applicableYear)}</td>
-                                <td className="p-3.5 font-semibold text-white">
+                                <td className="p-3.5 font-medium">{formatPeriod(item.applicableMonth, item.applicableYear)}</td>
+                                <td className={`p-3.5 font-semibold ${settled ? 'text-slate-400 font-normal' : 'text-white'}`}>
                                   {detail}
                                 </td>
                                 <td className="p-3.5 text-slate-400 max-w-xs truncate" title={refDetails}>
                                   {refDetails}
                                 </td>
-                                <td className={`p-3.5 text-right pr-4 font-bold ${amtStyle}`}>
+                                <td className={`p-3.5 text-right pr-4 font-bold ${settled ? 'text-slate-450' : amtStyle}`}>
                                   {formatCurrency(amt)}
+                                  {settled && <span className="text-emerald-555 text-[10px] ml-1 font-semibold" title="Settled">✓</span>}
                                 </td>
                               </tr>
                             );

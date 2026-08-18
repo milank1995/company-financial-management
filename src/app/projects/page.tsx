@@ -48,6 +48,9 @@ function ProjectsContent() {
   const [projectsList, setProjectsList] = useState<Project[]>([]);
   const [partnersList, setPartnersList] = useState<Partner[]>([]);
 
+  // Settlement statuses state
+  const [settlementStatuses, setSettlementStatuses] = useState<any[]>([]);
+
   // Table Data & Paginated aggregates
   const [payments, setPayments] = useState<Payment[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -149,9 +152,26 @@ function ProjectsContent() {
     }
   };
 
+  const fetchSettlementStatuses = async () => {
+    try {
+      const res = await fetch('/api/settlement/status');
+      if (res.ok) {
+        setSettlementStatuses(await res.json());
+      }
+    } catch (err) {
+      console.error('Failed to load settlement statuses:', err);
+    }
+  };
+
+  const isPeriodSettled = (month?: number, year?: number) => {
+    if (!month || !year) return false;
+    return settlementStatuses.some((s) => s.year === year && s.month === month && s.isSettled);
+  };
+
   useEffect(() => {
     if (user) {
       loadRoots();
+      fetchSettlementStatuses();
     }
   }, [user]);
 
@@ -567,41 +587,60 @@ function ProjectsContent() {
                         </td>
                       </tr>
                     ) : (
-                      payments.map((pay: any) => (
-                        <tr key={pay.id} className="text-slate-300 hover:bg-slate-800/10">
-                          <td className="py-4 pr-4 font-mono text-xs text-slate-400">
-                            {formatDate(pay.paymentDate)}
-                          </td>
-                          <td className="py-4 px-4 font-mono text-xs text-slate-300">
-                            {pay.applicableMonth ? `${pay.applicableMonth.toString().padStart(2, '0')}/${pay.applicableYear}` : 'N/A'}
-                          </td>
-                          <td className="py-4 px-4 font-semibold text-white">{pay.project.name}</td>
-                          <td className="py-4 px-4 text-slate-300">{pay.clientName || 'N/A'}</td>
-                          <td className="py-4 px-4">
-                            <span className="inline-flex items-center text-xs text-slate-300 bg-slate-800/60 px-2.5 py-0.5 rounded-full border border-slate-700">
-                              <User className="h-3 w-3 mr-1 text-cyan-400" />
-                              {pay.partner.name}
-                            </span>
-                          </td>
-                          <td className="py-4 px-4 text-right font-bold text-emerald-400">
-                            {formatCurrency(pay.amount)}
-                          </td>
-                          <td className="py-4 pl-4 text-right space-x-1.5">
-                            <button
-                              onClick={() => openEditPayment(pay)}
-                              className="inline-block p-1 text-slate-400 hover:text-white"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={() => handleDeletePayment(pay.id)}
-                              className="inline-block p-1 text-slate-400 hover:text-rose-400"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
+                      payments.map((pay: any) => {
+                        const settled = isPeriodSettled(pay.applicableMonth, pay.applicableYear);
+                        return (
+                          <tr
+                            key={pay.id}
+                            className={`transition-colors border-l-2 ${
+                              settled
+                                ? 'bg-slate-950/20 opacity-70 border-emerald-500/30 text-slate-450 select-none'
+                                : 'hover:bg-slate-800/10 border-transparent text-slate-350'
+                            }`}
+                          >
+                            <td className="py-4 pr-4 font-mono text-xs">
+                              {formatDate(pay.paymentDate)}
+                            </td>
+                            <td className="py-4 px-4 font-mono text-xs">
+                              {pay.applicableMonth ? `${pay.applicableMonth.toString().padStart(2, '0')}/${pay.applicableYear}` : 'N/A'}
+                            </td>
+                            <td className={`py-4 px-4 font-semibold truncate max-w-[200px] ${settled ? 'text-slate-400 font-normal' : 'text-white'}`}>{pay.project.name}</td>
+                            <td className="py-4 px-4 text-slate-300">{pay.clientName || 'N/A'}</td>
+                            <td className="py-4 px-4">
+                              <span className="inline-flex items-center text-xs text-slate-300 bg-slate-800/60 px-2.5 py-0.5 rounded-full border border-slate-700">
+                                <User className="h-3 w-3 mr-1 text-cyan-400" />
+                                {pay.partner.name}
+                              </span>
+                            </td>
+                            <td className={`py-4 px-4 text-right font-bold ${settled ? 'text-slate-400' : 'text-emerald-400'}`}>
+                              {formatCurrency(pay.amount)}
+                              {settled && <span className="text-emerald-500 text-[10px] ml-1">✓</span>}
+                            </td>
+                            <td className="py-4 pl-4 text-right">
+                              {settled ? (
+                                <span className="inline-flex items-center text-[10px] uppercase font-bold tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                                  Reconciled
+                                </span>
+                              ) : (
+                                <div className="space-x-1.5 inline-block">
+                                  <button
+                                    onClick={() => openEditPayment(pay)}
+                                    className="inline-block p-1 text-slate-400 hover:text-white"
+                                  >
+                                    <Edit2 className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeletePayment(pay.id)}
+                                    className="inline-block p-1 text-slate-400 hover:text-rose-400"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>

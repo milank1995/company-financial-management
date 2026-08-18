@@ -24,6 +24,7 @@ export default function AdjustmentsPage() {
   const { user } = useAuth();
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [partners, setPartners] = useState<Partner[]>([]);
+  const [settlementStatuses, setSettlementStatuses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -82,9 +83,26 @@ export default function AdjustmentsPage() {
     }
   };
 
+  const fetchSettlementStatuses = async () => {
+    try {
+      const res = await fetch('/api/settlement/status');
+      if (res.ok) {
+        setSettlementStatuses(await res.json());
+      }
+    } catch (err) {
+      console.error('Failed to load settlement statuses:', err);
+    }
+  };
+
+  const isPeriodSettled = (month?: number, year?: number) => {
+    if (!month || !year) return false;
+    return settlementStatuses.some((s) => s.year === year && s.month === month && s.isSettled);
+  };
+
   useEffect(() => {
     if (user) {
       loadData();
+      fetchSettlementStatuses();
     }
   }, [user]);
 
@@ -246,58 +264,77 @@ export default function AdjustmentsPage() {
                       </td>
                     </tr>
                   ) : (
-                    adjustments.map((adj: any) => (
-                      <tr key={adj.id} className="text-slate-300 hover:bg-slate-800/10">
-                        <td className="py-4 pr-4">
-                          <div>
-                            <p className="font-medium text-white">{adj.description}</p>
-                          </div>
-                        </td>
-                        <td className="py-4 px-4">
-                          <span className="inline-flex items-center text-xs text-slate-300 bg-slate-800/60 px-2.5 py-0.5 rounded-full border border-slate-700">
-                            <User className="h-3 w-3 mr-1 text-cyan-400" />
-                            {adj.partner.name}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4">
-                          <span className={`inline-flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
-                            Number(adj.amount) >= 0
-                              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                              : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                    adjustments.map((adj: any) => {
+                      const settled = isPeriodSettled(adj.applicableMonth, adj.applicableYear);
+                      return (
+                        <tr
+                          key={adj.id}
+                          className={`transition-colors border-l-2 ${
+                            settled
+                              ? 'bg-slate-950/20 opacity-70 border-emerald-500/30 text-slate-450 select-none'
+                              : 'hover:bg-slate-800/10 border-transparent text-slate-350'
+                          }`}
+                        >
+                          <td className="py-4 pr-4">
+                            <div>
+                              <p className={`font-medium ${settled ? 'text-slate-400 font-normal' : 'text-white'}`}>{adj.description}</p>
+                            </div>
+                          </td>
+                          <td className="py-4 px-4">
+                            <span className="inline-flex items-center text-xs text-slate-300 bg-slate-800/60 px-2.5 py-0.5 rounded-full border border-slate-700">
+                              <User className="h-3 w-3 mr-1 text-cyan-400" />
+                              {adj.partner.name}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4">
+                            <span className={`inline-flex items-center text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                              Number(adj.amount) >= 0
+                                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                            }`}>
+                              {adj.type}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 text-slate-400 font-mono text-xs">
+                            <span className="flex items-center">
+                              <Calendar className="h-3.5 w-3.5 mr-1 text-slate-500" />
+                              {formatDate(adj.adjustmentDate)}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 font-mono text-xs text-slate-300">
+                            {adj.applicableMonth ? `${adj.applicableMonth.toString().padStart(2, '0')}/${adj.applicableYear}` : 'N/A'}
+                          </td>
+                          <td className={`py-4 px-4 text-right font-bold ${
+                            settled ? 'text-slate-400' : (Number(adj.amount) >= 0 ? 'text-emerald-400' : 'text-rose-400')
                           }`}>
-                            {adj.type}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4 text-slate-400 font-mono text-xs">
-                          <span className="flex items-center">
-                            <Calendar className="h-3.5 w-3.5 mr-1 text-slate-500" />
-                            {formatDate(adj.adjustmentDate)}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4 font-mono text-xs text-slate-300">
-                          {adj.applicableMonth ? `${adj.applicableMonth.toString().padStart(2, '0')}/${adj.applicableYear}` : 'N/A'}
-                        </td>
-                        <td className={`py-4 px-4 text-right font-bold ${
-                          Number(adj.amount) >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                        }`}>
-                          {formatCurrency(adj.amount)}
-                        </td>
-                        <td className="py-4 pl-4 text-right space-x-2">
-                          <button
-                            onClick={() => openEditAdjustment(adj)}
-                            className="inline-block p-1 text-slate-400 hover:text-white"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteAdjustment(adj.id)}
-                            className="inline-block p-1 text-slate-400 hover:text-rose-400"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                            {formatCurrency(adj.amount)}
+                            {settled && <span className="text-emerald-500 text-[10px] ml-1">✓</span>}
+                          </td>
+                          <td className="py-4 pl-4 text-right">
+                            {settled ? (
+                              <span className="inline-flex items-center text-[10px] uppercase font-bold tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                                Reconciled
+                              </span>
+                            ) : (
+                              <div className="space-x-2 inline-block">
+                                <button
+                                  onClick={() => openEditAdjustment(adj)}
+                                  className="inline-block p-1 text-slate-400 hover:text-white"
+                                >
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteAdjustment(adj.id)}
+                                  className="inline-block p-1 text-slate-400 hover:text-rose-400"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

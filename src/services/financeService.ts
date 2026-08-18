@@ -21,6 +21,7 @@ export interface PartnerMonthlySettlement {
 export interface MonthlyFinanceReport {
   year: number;
   month: number;
+  isSettled: boolean;
   totalIncome: number;
   totalSalaries: number; // Total Salary Expense
   totalExpenses: number;
@@ -46,6 +47,7 @@ export interface MultiMonthFinanceReport {
   monthlyBreakdown: {
     year: number;
     month: number;
+    isSettled: boolean;
     totalIncome: number;
     totalSalaries: number;
     totalExpenses: number;
@@ -68,6 +70,7 @@ export interface YearlyFinanceReport {
   paidDirectlyByClients: number;
   monthlyBreakdown: {
     month: number;
+    isSettled: boolean;
     totalIncome: number;
     totalSalaries: number;
     totalExpenses: number;
@@ -102,6 +105,7 @@ export interface PreFetchedFinanceData {
   salaries: any[];
   expenses: any[];
   adjustments: any[];
+  periodSettlements?: any[];
 }
 
 export function resolveOwnershipPercentagesInMemory(setups: any[], date: Date) {
@@ -248,6 +252,18 @@ export async function getMonthlyFinanceReport(
         },
       });
 
+  // Fetch period settlement status
+  const settlementRecord = preFetchedData && preFetchedData.periodSettlements
+    ? preFetchedData.periodSettlements.find((ps) => ps.year === year && ps.month === month)
+    : await prisma.periodSettlement.findFirst({
+        where: {
+          companyId,
+          year,
+          month,
+        },
+      });
+  const isSettled = settlementRecord ? settlementRecord.isSettled : false;
+
   // Calculate aggregates
   const totalIncome = payments.reduce((acc, curr) => acc + toNumber(curr.amount), 0);
   const totalSalaries = salaries.reduce((acc, curr) => acc + toNumber(curr.amount), 0);
@@ -345,6 +361,7 @@ export async function getMonthlyFinanceReport(
   return {
     year,
     month,
+    isSettled,
     totalIncome,
     totalSalaries,
     totalExpenses,
@@ -366,7 +383,7 @@ export async function getYearlyFinanceReport(
   partnerId?: string
 ): Promise<YearlyFinanceReport> {
   // Pre-fetch all data for the entire year in parallel
-  const [partners, setups, payments, salaries, expenses, adjustments] = await Promise.all([
+  const [partners, setups, payments, salaries, expenses, adjustments, periodSettlements] = await Promise.all([
     prisma.partner.findMany({
       where: { companyId },
     }),
@@ -409,6 +426,12 @@ export async function getYearlyFinanceReport(
         deletedAt: null,
       },
     }),
+    prisma.periodSettlement.findMany({
+      where: {
+        companyId,
+        year,
+      },
+    }),
   ]);
 
   const preFetchedData: PreFetchedFinanceData = {
@@ -418,6 +441,7 @@ export async function getYearlyFinanceReport(
     salaries,
     expenses,
     adjustments,
+    periodSettlements,
   };
 
   const monthlyReports: MonthlyFinanceReport[] = [];
@@ -442,6 +466,7 @@ export async function getYearlyFinanceReport(
       const ps = r.partnerSettlements.find((p) => p.partnerId === partnerId);
       return {
         month: r.month,
+        isSettled: r.isSettled,
         totalIncome: ps ? ps.profitShare : 0,
         totalSalaries: ps ? ps.salariesPaid : 0,
         totalExpenses: ps ? ps.expensesPaid : 0,
@@ -454,6 +479,7 @@ export async function getYearlyFinanceReport(
     }
     return {
       month: r.month,
+      isSettled: r.isSettled,
       totalIncome: r.totalIncome,
       totalSalaries: r.totalSalaries,
       totalExpenses: r.totalExpenses,
@@ -576,7 +602,12 @@ export async function getMultiMonthFinanceReport(
     applicableMonth: p.month,
   }));
 
-  const [partners, setups, payments, salaries, expenses, adjustments] = await Promise.all([
+  const orConditionsForSettlement = periods.map((p) => ({
+    year: p.year,
+    month: p.month,
+  }));
+
+  const [partners, setups, payments, salaries, expenses, adjustments, periodSettlements] = await Promise.all([
     prisma.partner.findMany({
       where: { companyId },
     }),
@@ -619,6 +650,12 @@ export async function getMultiMonthFinanceReport(
         deletedAt: null,
       },
     }),
+    prisma.periodSettlement.findMany({
+      where: {
+        companyId,
+        OR: orConditionsForSettlement,
+      },
+    }),
   ]);
 
   const monthlyReports: MonthlyFinanceReport[] = [];
@@ -630,6 +667,7 @@ export async function getMultiMonthFinanceReport(
       salaries: salaries.filter((x) => x.applicableYear === p.year && x.applicableMonth === p.month),
       expenses: expenses.filter((x) => x.applicableYear === p.year && x.applicableMonth === p.month),
       adjustments: adjustments.filter((x) => x.applicableYear === p.year && x.applicableMonth === p.month),
+      periodSettlements: periodSettlements.filter((x) => x.year === p.year && x.month === p.month),
     };
     const r = await getMonthlyFinanceReport(companyId, p.year, p.month, partnerId, monthPrefetched);
     monthlyReports.push(r);
@@ -707,6 +745,7 @@ export async function getMultiMonthFinanceReport(
   const monthlyBreakdown = monthlyReports.map((r) => ({
     year: r.year,
     month: r.month,
+    isSettled: r.isSettled,
     totalIncome: r.totalIncome,
     totalSalaries: r.totalSalaries,
     totalExpenses: r.totalExpenses,
@@ -730,4 +769,17 @@ export async function getMultiMonthFinanceReport(
     expensesByCategory,
     monthlyBreakdown,
   };
+}
+
+export async function checkPeriodSettled(companyId: string, year: number, month: number): Promise<boolean> {
+  const record = await prisma.periodSettlement.findUnique({
+    where: {
+      companyId_year_month: {
+        companyId,
+        year,
+        month,
+      },
+    },
+  });
+  return !!record?.isSettled;
 }

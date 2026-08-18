@@ -38,6 +38,9 @@ function ExpensesContent() {
   // Root Data Lists
   const [partnersList, setPartnersList] = useState<Partner[]>([]);
 
+  // Settlement statuses state
+  const [settlementStatuses, setSettlementStatuses] = useState<any[]>([]);
+
   // Table Data & Paginated aggregates
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -129,9 +132,26 @@ function ExpensesContent() {
     }
   };
 
+  const fetchSettlementStatuses = async () => {
+    try {
+      const res = await fetch('/api/settlement/status');
+      if (res.ok) {
+        setSettlementStatuses(await res.json());
+      }
+    } catch (err) {
+      console.error('Failed to load settlement statuses:', err);
+    }
+  };
+
+  const isPeriodSettled = (month?: number, year?: number) => {
+    if (!month || !year) return false;
+    return settlementStatuses.some((s) => s.year === year && s.month === month && s.isSettled);
+  };
+
   useEffect(() => {
     if (user) {
       loadRoots();
+      fetchSettlementStatuses();
     }
   }, [user]);
 
@@ -430,46 +450,65 @@ function ExpensesContent() {
                       </td>
                     </tr>
                   ) : (
-                    expenses.map((exp: any) => (
-                      <tr key={exp.id} className="text-slate-300 hover:bg-slate-800/10">
-                        <td className="py-4 pr-4 font-mono text-xs text-slate-400">
-                          {formatDate(exp.expenseDate)}
-                        </td>
-                        <td className="py-4 px-4 font-mono text-xs text-slate-300">
-                          {exp.applicableMonth ? `${exp.applicableMonth.toString().padStart(2, '0')}/${exp.applicableYear}` : 'N/A'}
-                        </td>
-                        <td className="py-4 px-4 font-semibold text-white truncate max-w-[200px]">{exp.description}</td>
-                        <td className="py-4 px-4">
-                          <span className="inline-flex items-center text-xs text-slate-300 bg-slate-850 px-2 py-0.5 rounded-md border border-slate-700">
-                            <Tag className="h-3 w-3 mr-1 text-cyan-400" />
-                            {exp.category}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4">
-                          <span className="inline-flex items-center text-xs text-slate-300 bg-slate-800/60 px-2.5 py-0.5 rounded-full border border-slate-700">
-                            <User className="h-3 w-3 mr-1 text-cyan-400" />
-                            {exp.partner.name}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4 text-right font-bold text-orange-400">
-                          {formatCurrency(exp.amount)}
-                        </td>
-                        <td className="py-4 pl-4 text-right space-x-1.5">
-                          <button
-                            onClick={() => openEditExpense(exp)}
-                            className="inline-block p-1 text-slate-400 hover:text-white"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteExpense(exp.id)}
-                            className="inline-block p-1 text-slate-400 hover:text-rose-400"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                    expenses.map((exp: any) => {
+                      const settled = isPeriodSettled(exp.applicableMonth, exp.applicableYear);
+                      return (
+                        <tr
+                          key={exp.id}
+                          className={`transition-colors border-l-2 ${
+                            settled
+                              ? 'bg-slate-950/20 opacity-70 border-emerald-500/30 text-slate-450 select-none'
+                              : 'hover:bg-slate-800/10 border-transparent text-slate-350'
+                          }`}
+                        >
+                          <td className="py-4 pr-4 font-mono text-xs">
+                            {formatDate(exp.expenseDate)}
+                          </td>
+                          <td className="py-4 px-4 font-mono text-xs">
+                            {exp.applicableMonth ? `${exp.applicableMonth.toString().padStart(2, '0')}/${exp.applicableYear}` : 'N/A'}
+                          </td>
+                          <td className={`py-4 px-4 font-semibold truncate max-w-[200px] ${settled ? 'text-slate-400 font-normal' : 'text-white'}`}>{exp.description}</td>
+                          <td className="py-4 px-4">
+                            <span className="inline-flex items-center text-xs text-slate-300 bg-slate-850 px-2 py-0.5 rounded-md border border-slate-700">
+                              <Tag className="h-3 w-3 mr-1 text-cyan-400" />
+                              {exp.category}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4">
+                            <span className="inline-flex items-center text-xs text-slate-300 bg-slate-800/60 px-2.5 py-0.5 rounded-full border border-slate-700">
+                              <User className="h-3 w-3 mr-1 text-cyan-400" />
+                              {exp.partner.name}
+                            </span>
+                          </td>
+                          <td className={`py-4 px-4 text-right font-bold ${settled ? 'text-slate-400' : 'text-orange-400'}`}>
+                            {formatCurrency(exp.amount)}
+                            {settled && <span className="text-emerald-500 text-[10px] ml-1">✓</span>}
+                          </td>
+                          <td className="py-4 pl-4 text-right">
+                            {settled ? (
+                              <span className="inline-flex items-center text-[10px] uppercase font-bold tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                                Reconciled
+                              </span>
+                            ) : (
+                              <div className="space-x-1.5 inline-block">
+                                <button
+                                  onClick={() => openEditExpense(exp)}
+                                  className="inline-block p-1 text-slate-400 hover:text-white"
+                                >
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteExpense(exp.id)}
+                                  className="inline-block p-1 text-slate-400 hover:text-rose-400"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { checkAuth } from '@/lib/auth';
 import { SalaryPaymentSource } from '@prisma/client';
 import { NextResponse } from 'next/server';
+import { checkPeriodSettled } from '@/services/financeService';
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await checkAuth(req);
@@ -10,6 +11,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
 
   try {
+    const existing = await prisma.employeeSalary.findUnique({
+      where: { id, companyId: user.companyId }
+    });
+    if (!existing || existing.deletedAt) {
+      return NextResponse.json({ error: 'Salary not found' }, { status: 404 });
+    }
+
+    const isCurrentSettled = await checkPeriodSettled(user.companyId, existing.applicableYear, existing.applicableMonth);
+    if (isCurrentSettled) {
+      return NextResponse.json({ error: 'Cannot modify a salary in a settled period' }, { status: 400 });
+    }
+
     const {
       amount,
       paymentDate,
@@ -45,23 +58,26 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     // Resolve target accounting period
-    let resolvedMonth = applicableMonth !== undefined ? Number(applicableMonth) : undefined;
-    let resolvedYear = applicableYear !== undefined ? Number(applicableYear) : undefined;
+    let resolvedMonth = applicableMonth !== undefined ? Number(applicableMonth) : existing.applicableMonth;
+    let resolvedYear = applicableYear !== undefined ? Number(applicableYear) : existing.applicableYear;
 
-    if (resolvedMonth === undefined || resolvedYear === undefined) {
-      if (paymentDate) {
-        const parsedDate = new Date(paymentDate);
-        if (!isNaN(parsedDate.getTime())) {
-          let m = parsedDate.getMonth(); // 0 to 11 (corresponds to month-1)
-          let y = parsedDate.getFullYear();
-          if (m === 0) {
-            m = 12;
-            y -= 1;
-          }
-          if (resolvedMonth === undefined) resolvedMonth = m;
-          if (resolvedYear === undefined) resolvedYear = y;
+    if (paymentDate && applicableMonth === undefined && applicableYear === undefined) {
+      const parsedDate = new Date(paymentDate);
+      if (!isNaN(parsedDate.getTime())) {
+        let m = parsedDate.getMonth(); // 0 to 11 (corresponds to month-1)
+        let y = parsedDate.getFullYear();
+        if (m === 0) {
+          m = 12;
+          y -= 1;
         }
+        resolvedMonth = m;
+        resolvedYear = y;
       }
+    }
+
+    const isNewSettled = await checkPeriodSettled(user.companyId, resolvedYear, resolvedMonth);
+    if (isNewSettled) {
+      return NextResponse.json({ error: 'Cannot move a salary into a settled period' }, { status: 400 });
     }
 
     const salary = await prisma.employeeSalary.update({
@@ -99,6 +115,18 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const { id } = await params;
 
   try {
+    const existing = await prisma.employeeSalary.findUnique({
+      where: { id, companyId: user.companyId }
+    });
+    if (!existing || existing.deletedAt) {
+      return NextResponse.json({ error: 'Salary not found' }, { status: 404 });
+    }
+
+    const isSettled = await checkPeriodSettled(user.companyId, existing.applicableYear, existing.applicableMonth);
+    if (isSettled) {
+      return NextResponse.json({ error: 'Cannot delete a salary in a settled period' }, { status: 400 });
+    }
+
     const salary = await prisma.employeeSalary.update({
       where: { id, companyId: user.companyId },
       data: {

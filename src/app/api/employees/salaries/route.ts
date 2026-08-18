@@ -3,6 +3,7 @@ import { checkAuth } from '@/lib/auth';
 import { SalaryPaymentSource } from '@prisma/client';
 import { NextResponse } from 'next/server';
 import { parseFilterParams, buildPrismaDateFilter, toNumber } from '@/lib/queryFilters';
+import { checkPeriodSettled } from '@/services/financeService';
 
 export async function GET(req: Request) {
   const auth = await checkAuth(req);
@@ -188,6 +189,11 @@ export async function POST(req: Request) {
         resolvedMonth = 1;
         resolvedYear = 2026;
       }
+    }
+
+    const isSettled = await checkPeriodSettled(user.companyId, resolvedYear, resolvedMonth);
+    if (isSettled) {
+      return NextResponse.json({ error: 'Cannot add salary to a settled period' }, { status: 400 });
     }
 
     const salary = await prisma.employeeSalary.create({

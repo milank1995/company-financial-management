@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { checkAuth } from '@/lib/auth';
 import { NextResponse } from 'next/server';
+import { checkPeriodSettled } from '@/services/financeService';
 
 export async function GET(req: Request) {
   const auth = await checkAuth(req);
@@ -54,6 +55,11 @@ export async function POST(req: Request) {
     const parsedDate = new Date(adjustmentDate);
     const resolvedMonth = applicableMonth !== undefined ? Number(applicableMonth) : (parsedDate.getMonth() + 1);
     const resolvedYear = applicableYear !== undefined ? Number(applicableYear) : parsedDate.getFullYear();
+
+    const isSettled = await checkPeriodSettled(user.companyId, resolvedYear, resolvedMonth);
+    if (isSettled) {
+      return NextResponse.json({ error: 'Cannot add adjustment to a settled period' }, { status: 400 });
+    }
 
     const adjustment = await prisma.partnerAdjustment.create({
       data: {

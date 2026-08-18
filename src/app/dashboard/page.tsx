@@ -89,6 +89,11 @@ function MonthlyPartnerBreakdownTable({ breakdown, months, formatCurrency, onDri
                 >
                   <div className="flex items-center space-x-3">
                     <span className="text-base font-bold text-white min-w-[100px]">{monthLabel}</span>
+                    {row.isSettled && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        ✓ Settled
+                      </span>
+                    )}
                     <div className="flex flex-wrap gap-2 text-xs">
                       <span className="px-2 py-0.5 rounded bg-slate-800/60 text-slate-400">
                         Profit: <strong className="text-slate-200">{formatCurrency(row.netProfit)}</strong>
@@ -253,6 +258,49 @@ export default function DashboardPage() {
     type: 'profit_share',
     periods: [],
   });
+
+  const hasSettledPeriods = () => {
+    if (!data) return false;
+    if (viewType === 'monthly' && selectedPeriods.length === 1) {
+      return !!data.isSettled;
+    }
+    return (data.monthlyBreakdown || []).some((b: any) => b.isSettled);
+  };
+
+  const getPartnerFinancialBreakdown = (partnerId: string) => {
+    if (!data) return { total: 0, settled: 0, unsettled: 0 };
+    
+    let total = 0;
+    let settled = 0;
+    let unsettled = 0;
+
+    if (viewType === 'monthly' && selectedPeriods.length === 1) {
+      const ps = (data.partnerSettlements || []).find((p: any) => p.partnerId === partnerId);
+      if (ps) {
+        total = ps.netBalance;
+        if (data.isSettled) {
+          settled = ps.netBalance;
+        } else {
+          unsettled = ps.netBalance;
+        }
+      }
+    } else {
+      const breakdown = data.monthlyBreakdown || [];
+      breakdown.forEach((monthData: any) => {
+        const ps = (monthData.partnerSettlements || []).find((p: any) => p.partnerId === partnerId);
+        if (ps) {
+          total += ps.netBalance;
+          if (monthData.isSettled) {
+            settled += ps.netBalance;
+          } else {
+            unsettled += ps.netBalance;
+          }
+        }
+      });
+    }
+
+    return { total, settled, unsettled };
+  };
 
   const handleDrilldown = (
     partnerId: string,
@@ -596,6 +644,21 @@ export default function DashboardPage() {
           </div>
         ) : data ? (
           <div className="space-y-8 animate-fade-in">
+            {/* Settled Period Alert Banner */}
+            {viewType === 'monthly' && selectedPeriods.length === 1 && data.isSettled && (
+              <div className="rounded-xl bg-emerald-500/5 border border-emerald-500/20 p-4 flex items-center justify-between text-sm text-slate-350">
+                <div className="flex items-center space-x-2.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                  <span>
+                    This period is <strong>Closed & Settled</strong>. All transaction audits are reconciled.
+                  </span>
+                </div>
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  Reconciled
+                </span>
+              </div>
+            )}
+
             {/* Stat Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* Income */}
@@ -849,7 +912,7 @@ export default function DashboardPage() {
                             title="Audit Profit Share breakdown"
                           >
                             <span>Profit Share:</span>
-                            <span className="font-semibold text-white group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">{formatCurrency(p.profitShare)}</span>
+                            <span className="font-semibold text-white group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650 whitespace-nowrap">{formatCurrency(p.profitShare)}</span>
                           </div>
                           <div 
                             onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'credits', drilldownPeriods)}
@@ -857,7 +920,7 @@ export default function DashboardPage() {
                             title="View Credits adjustment ledger"
                           >
                             <span className="pl-3">Other Credits:</span>
-                            <span className="font-medium text-emerald-450 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">+{formatCurrency(p.credits)}</span>
+                            <span className="font-medium text-emerald-450 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650 whitespace-nowrap">+{formatCurrency(p.credits)}</span>
                           </div>
                           <div 
                             onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'debits', drilldownPeriods)}
@@ -865,7 +928,7 @@ export default function DashboardPage() {
                             title="View Debits adjustment ledger"
                           >
                             <span className="pl-3">Other Debits:</span>
-                            <span className="font-medium text-rose-500 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">-{formatCurrency(p.debits)}</span>
+                            <span className="font-medium text-rose-500 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650 whitespace-nowrap">-{formatCurrency(p.debits)}</span>
                           </div>
                         </div>
 
@@ -880,7 +943,7 @@ export default function DashboardPage() {
                             title="View paid salaries list"
                           >
                             <span>Salaries Paid:</span>
-                            <span className="font-semibold text-white group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">+{formatCurrency(p.salariesPaid)}</span>
+                            <span className="font-semibold text-white group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650 whitespace-nowrap">+{formatCurrency(p.salariesPaid)}</span>
                           </div>
                           <div 
                             onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'expenses_paid', drilldownPeriods)}
@@ -888,7 +951,7 @@ export default function DashboardPage() {
                             title="View paid expenses list"
                           >
                             <span>Company Expenses:</span>
-                            <span className="font-semibold text-white group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">+{formatCurrency(p.expensesPaid)}</span>
+                            <span className="font-semibold text-white group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650 whitespace-nowrap">+{formatCurrency(p.expensesPaid)}</span>
                           </div>
                         </div>
 
@@ -903,7 +966,7 @@ export default function DashboardPage() {
                             title="View received project payments"
                           >
                             <span>Project Payments:</span>
-                            <span className="font-medium text-rose-450 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">-{formatCurrency(p.companyMoneyReceived)}</span>
+                            <span className="font-medium text-rose-450 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650 whitespace-nowrap">-{formatCurrency(p.companyMoneyReceived)}</span>
                           </div>
                           <div 
                             onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'client_direct', drilldownPeriods)}
@@ -911,33 +974,61 @@ export default function DashboardPage() {
                             title="View received direct salaries"
                           >
                             <span>Client Direct Salary:</span>
-                            <span className="font-medium text-rose-455 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650">-{formatCurrency(p.clientDirectSalaryReceived)}</span>
+                            <span className="font-medium text-rose-455 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650 whitespace-nowrap">-{formatCurrency(p.clientDirectSalaryReceived)}</span>
                           </div>
                           <div className="flex justify-between border-t border-slate-800/60 pt-2 text-slate-300 font-semibold mt-1">
                             <span>Total Money Received:</span>
-                            <span className="text-amber-450">{formatCurrency(p.totalCompanyMoneyReceived)}</span>
+                            <span className="text-amber-450 whitespace-nowrap">{formatCurrency(p.totalCompanyMoneyReceived)}</span>
                           </div>
                         </div>
                       </div>
 
                       {/* Card Footer Settlement Net Balance */}
-                      <div className={`p-4 text-sm font-bold flex items-center justify-between border-t border-slate-800/80 ${
+                      <div className={`p-4 text-sm font-bold flex flex-col border-t border-slate-800/80 ${
                         isReceivable ? 'bg-emerald-500/5 text-emerald-400' : 'bg-rose-500/5 text-rose-500'
                       }`}>
-                        <span className="flex items-center space-x-1">
-                          {isReceivable ? (
-                            <>
-                              <ArrowUpRight className="h-4 w-4 text-emerald-400 mr-1" />
-                              <span>Receivable (Company Owed)</span>
-                            </>
-                          ) : (
-                            <>
-                              <ArrowDownLeft className="h-4 w-4 text-rose-500 mr-1" />
-                              <span>Payable (Partner Owed)</span>
-                            </>
-                          )}
-                        </span>
-                        <span className="text-lg font-extrabold">{formatCurrency(p.netBalance)}</span>
+                        <div className="flex items-center justify-between w-full">
+                          <span className="flex items-center space-x-1">
+                            {isReceivable ? (
+                              <>
+                                <ArrowUpRight className="h-4 w-4 text-emerald-400 mr-1" />
+                                <span>Receivable (Company Owed)</span>
+                              </>
+                            ) : (
+                              <>
+                                <ArrowDownLeft className="h-4 w-4 text-rose-500 mr-1" />
+                                <span>Payable (Partner Owed)</span>
+                              </>
+                            )}
+                          </span>
+                          <span className="text-lg font-extrabold">{formatCurrency(p.netBalance)}</span>
+                        </div>
+
+                        {hasSettledPeriods() && (() => {
+                          const breakdown = getPartnerFinancialBreakdown(p.partnerId);
+                          return (
+                            <div className="mt-2.5 pt-2.5 border-t border-slate-800/60 space-y-1.5 text-[11px] text-slate-400 font-medium w-full">
+                              <div className="flex justify-between">
+                                <span>Total Owed:</span>
+                                <span className="font-semibold text-slate-200">{formatCurrency(Math.abs(breakdown.total))}</span>
+                              </div>
+                              <div className="flex justify-between text-emerald-400/90">
+                                <span className="flex items-center">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                                  Settled:
+                                </span>
+                                <span className="font-bold">{formatCurrency(Math.abs(breakdown.settled))}</span>
+                              </div>
+                              <div className="flex justify-between text-amber-500/95">
+                                <span className="flex items-center">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 mr-1.5"></span>
+                                  Outstanding:
+                                </span>
+                                <span className="font-bold">{formatCurrency(Math.abs(breakdown.unsettled))}</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -960,12 +1051,34 @@ export default function DashboardPage() {
                     ) : (
                       ((partnerSettlement ? [partnerSettlement] : data.partnerSettlements) || [])
                         .filter((p: any) => p.netBalance >= 0)
-                        .map((p: any) => (
-                          <div key={p.partnerId} className="flex justify-between items-center p-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10 text-xs">
-                            <span className="font-semibold text-white">{p.partnerName}</span>
-                            <span className="font-bold text-emerald-400">{formatCurrency(p.netBalance)}</span>
-                          </div>
-                        ))
+                        .map((p: any) => {
+                          const breakdown = getPartnerFinancialBreakdown(p.partnerId);
+                          return (
+                            <div key={p.partnerId} className="flex flex-col p-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10 text-xs space-y-1.5">
+                              <div className="flex justify-between items-center w-full">
+                                <span className="font-semibold text-white">{p.partnerName}</span>
+                                <span className="font-bold text-emerald-400">{formatCurrency(p.netBalance)}</span>
+                              </div>
+                              
+                              {hasSettledPeriods() && (
+                                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-emerald-500/10 text-[9px] text-slate-400">
+                                  <div>
+                                    <p className="text-slate-500 uppercase tracking-wider font-bold text-[7px]">Total</p>
+                                    <p className="font-semibold text-slate-350">{formatCurrency(Math.abs(breakdown.total))}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-emerald-500/70 uppercase tracking-wider font-bold text-[7px]">Settled</p>
+                                    <p className="font-semibold text-emerald-400">{formatCurrency(Math.abs(breakdown.settled))}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-amber-500/70 uppercase tracking-wider font-bold text-[7px]">Outstanding</p>
+                                    <p className="font-semibold text-amber-400">{formatCurrency(Math.abs(breakdown.unsettled))}</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
                     )}
                   </div>
                 </div>
@@ -981,12 +1094,34 @@ export default function DashboardPage() {
                     ) : (
                       ((partnerSettlement ? [partnerSettlement] : data.partnerSettlements) || [])
                         .filter((p: any) => p.netBalance < 0)
-                        .map((p: any) => (
-                          <div key={p.partnerId} className="flex justify-between items-center p-2.5 rounded-lg bg-rose-500/5 border border-rose-500/10 text-xs">
-                            <span className="font-semibold text-white">{p.partnerName}</span>
-                            <span className="font-bold text-rose-400">{formatCurrency(Math.abs(p.netBalance))}</span>
-                          </div>
-                        ))
+                        .map((p: any) => {
+                          const breakdown = getPartnerFinancialBreakdown(p.partnerId);
+                          return (
+                            <div key={p.partnerId} className="flex flex-col p-2.5 rounded-lg bg-rose-500/5 border border-rose-500/10 text-xs space-y-1.5">
+                              <div className="flex justify-between items-center w-full">
+                                <span className="font-semibold text-white">{p.partnerName}</span>
+                                <span className="font-bold text-rose-400">{formatCurrency(Math.abs(p.netBalance))}</span>
+                              </div>
+                              
+                              {hasSettledPeriods() && (
+                                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-rose-500/10 text-[9px] text-slate-400">
+                                  <div>
+                                    <p className="text-slate-500 uppercase tracking-wider font-bold text-[7px]">Total</p>
+                                    <p className="font-semibold text-slate-350">{formatCurrency(Math.abs(breakdown.total))}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-emerald-500/70 uppercase tracking-wider font-bold text-[7px]">Settled</p>
+                                    <p className="font-semibold text-emerald-400">{formatCurrency(Math.abs(breakdown.settled))}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-amber-500/70 uppercase tracking-wider font-bold text-[7px]">Outstanding</p>
+                                    <p className="font-semibold text-amber-400">{formatCurrency(Math.abs(breakdown.unsettled))}</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
                     )}
                   </div>
                 </div>

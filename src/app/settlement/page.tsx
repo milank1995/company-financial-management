@@ -34,6 +34,10 @@ export default function SettlementPage() {
   const [error, setError] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Settlement Statuses & Exclude Filter State
+  const [settlementStatuses, setSettlementStatuses] = useState<any[]>([]);
+  const [excludeSettled, setExcludeSettled] = useState(true);
+
   // Drilldown Modal States
   const [drilldownOpen, setDrilldownOpen] = useState(false);
   const [drilldownConfig, setDrilldownConfig] = useState<{
@@ -105,6 +109,180 @@ export default function SettlementPage() {
     });
   };
 
+  const fetchSettlementStatuses = async () => {
+    try {
+      const res = await fetch('/api/settlement/status');
+      if (res.ok) {
+        const json = await res.json();
+        setSettlementStatuses(json);
+      }
+    } catch (err) {
+      console.error('Failed to fetch settlement statuses:', err);
+    }
+  };
+
+  const isPeriodSettled = (year: number, month: number) => {
+    return settlementStatuses.some((s) => s.year === year && s.month === month && s.isSettled);
+  };
+
+  const handleToggleSettlement = async (year: number, month: number, targetSettled: boolean) => {
+    const actionText = targetSettled ? 'settle' : 'reopen';
+    const mName = months.find((m) => m.value === month)?.label;
+    if (!confirm(`Are you sure you want to ${actionText} the settlement period for ${mName} ${year}?`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/settlement/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          year,
+          month,
+          isSettled: targetSettled,
+          notes: targetSettled ? 'Marked settled via ledger view' : null
+        })
+      });
+
+      if (!res.ok) throw new Error('Failed to update period settlement status');
+
+      await Promise.all([fetchSettlementStatuses(), fetchData()]);
+    } catch (err: any) {
+      alert(err.message || 'Something went wrong');
+    }
+  };
+
+  const getDisplaySettlements = () => {
+    if (!data) return [];
+    if (!excludeSettled) return data.partnerSettlements || [];
+
+    if (viewType === 'monthly' && selectedPeriods.length === 1) {
+      if (data.isSettled) {
+        return (data.partnerSettlements || []).map((ps: any) => ({
+          ...ps,
+          profitShare: 0,
+          companyMoneyReceived: 0,
+          clientDirectSalaryReceived: 0,
+          totalCompanyMoneyReceived: 0,
+          salariesPaid: 0,
+          expensesPaid: 0,
+          credits: 0,
+          debits: 0,
+          netAdjustment: 0,
+          netBalance: 0,
+          settlementType: 'RECEIVABLE',
+        }));
+      }
+      return data.partnerSettlements || [];
+    }
+
+    const breakdown = data.monthlyBreakdown || [];
+    const activeBreakdown = breakdown.filter((b: any) => !b.isSettled);
+    const baseSettlements = data.partnerSettlements || [];
+    
+    if (activeBreakdown.length === 0) {
+      return baseSettlements.map((ps: any) => ({
+        ...ps,
+        profitShare: 0,
+        companyMoneyReceived: 0,
+        clientDirectSalaryReceived: 0,
+        totalCompanyMoneyReceived: 0,
+        salariesPaid: 0,
+        expensesPaid: 0,
+        credits: 0,
+        debits: 0,
+        netAdjustment: 0,
+        netBalance: 0,
+        settlementType: 'RECEIVABLE',
+      }));
+    }
+
+    const aggregated: Record<string, any> = {};
+    baseSettlements.forEach((ps: any) => {
+      aggregated[ps.partnerId] = {
+        partnerId: ps.partnerId,
+        partnerName: ps.partnerName,
+        ownershipPercentage: ps.ownershipPercentage,
+        profitShare: 0,
+        companyMoneyReceived: 0,
+        clientDirectSalaryReceived: 0,
+        totalCompanyMoneyReceived: 0,
+        salariesPaid: 0,
+        expensesPaid: 0,
+        credits: 0,
+        debits: 0,
+        netAdjustment: 0,
+        netBalance: 0,
+      };
+    });
+
+    activeBreakdown.forEach((monthData: any) => {
+      (monthData.partnerSettlements || []).forEach((ps: any) => {
+        const entry = aggregated[ps.partnerId];
+        if (entry) {
+          entry.profitShare += ps.profitShare;
+          entry.companyMoneyReceived += ps.companyMoneyReceived;
+          entry.clientDirectSalaryReceived += ps.clientDirectSalaryReceived;
+          entry.totalCompanyMoneyReceived += ps.totalCompanyMoneyReceived;
+          entry.salariesPaid += ps.salariesPaid;
+          entry.expensesPaid += ps.expensesPaid;
+          entry.credits += ps.credits;
+          entry.debits += ps.debits;
+          entry.netAdjustment += ps.netAdjustment;
+          entry.netBalance += ps.netBalance;
+        }
+      });
+    });
+
+    return Object.values(aggregated).map((entry: any) => ({
+      ...entry,
+      settlementType: entry.netBalance >= 0 ? 'RECEIVABLE' : 'PAYABLE',
+    }));
+  };
+
+  const hasSettledPeriods = () => {
+    if (!data) return false;
+    if (viewType === 'monthly' && selectedPeriods.length === 1) {
+      return !!data.isSettled;
+    }
+    return (data.monthlyBreakdown || []).some((b: any) => b.isSettled);
+  };
+
+  const getPartnerFinancialBreakdown = (partnerId: string) => {
+    if (!data) return { total: 0, settled: 0, unsettled: 0 };
+    
+    let total = 0;
+    let settled = 0;
+    let unsettled = 0;
+
+    if (viewType === 'monthly' && selectedPeriods.length === 1) {
+      const ps = (data.partnerSettlements || []).find((p: any) => p.partnerId === partnerId);
+      if (ps) {
+        total = ps.netBalance;
+        if (data.isSettled) {
+          settled = ps.netBalance;
+        } else {
+          unsettled = ps.netBalance;
+        }
+      }
+    } else {
+      const breakdown = data.monthlyBreakdown || [];
+      breakdown.forEach((monthData: any) => {
+        const ps = (monthData.partnerSettlements || []).find((p: any) => p.partnerId === partnerId);
+        if (ps) {
+          total += ps.netBalance;
+          if (monthData.isSettled) {
+            settled += ps.netBalance;
+          } else {
+            unsettled += ps.netBalance;
+          }
+        }
+      });
+    }
+
+    return { total, settled, unsettled };
+  };
+
   const fetchData = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -142,6 +320,12 @@ export default function SettlementPage() {
   }, [user, viewType, selectedYear, selectedPeriods]);
 
   useEffect(() => {
+    if (user) {
+      fetchSettlementStatuses();
+    }
+  }, [user]);
+
+  useEffect(() => {
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -152,6 +336,8 @@ export default function SettlementPage() {
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(val);
   };
+
+  const displaySettlements = getDisplaySettlements();
 
   return (
     <SidebarLayout>
@@ -299,21 +485,23 @@ export default function SettlementPage() {
                               </div>
                               
                               <div className="grid grid-cols-4 gap-1.5">
-                                {months.map((m) => {
+                                 {months.map((m) => {
                                   const pStr = `${y}-${String(m.value).padStart(2, '0')}`;
                                   const isChecked = selectedPeriods.includes(pStr);
+                                  const settled = isPeriodSettled(y, m.value);
                                   return (
                                     <button
                                       key={m.value}
                                       type="button"
                                       onClick={() => togglePeriod(pStr)}
-                                      className={`px-1.5 py-1 text-[11px] font-medium rounded border text-center transition-all ${
+                                      className={`px-1.5 py-1 text-[11px] font-medium rounded border text-center transition-all flex items-center justify-center ${
                                         isChecked
                                           ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30 font-bold'
                                           : 'bg-[#0f172a]/40 text-slate-400 border-transparent hover:text-white hover:bg-slate-800/30'
                                       }`}
                                     >
-                                      {m.label.substring(0, 3)}
+                                      <span>{m.label.substring(0, 3)}</span>
+                                      {settled && <span className="text-emerald-500 text-[10px] ml-0.5" title="Settled">✓</span>}
                                     </button>
                                   );
                                 })}
@@ -364,190 +552,222 @@ export default function SettlementPage() {
           </div>
         ) : data ? (
           <div className="space-y-8 animate-fade-in">
+            {/* Settlement Status Management Panel (only for monthly view) */}
+            {viewType === 'monthly' && selectedPeriods.length > 0 && (
+              <div className="glass-card p-6 rounded-2xl border border-slate-800 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-800/80 pb-3 gap-3">
+                  <div>
+                    <h3 className="text-base font-bold text-white">Period Settlement Status</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">Manage closing status for selected billing months</p>
+                  </div>
+                  <label className="flex items-center space-x-2 text-xs text-slate-300 select-none cursor-pointer hover:text-white transition-colors bg-[#0b0f19] border border-slate-800 px-3 py-1.5 rounded-lg">
+                    <input
+                      type="checkbox"
+                      checked={excludeSettled}
+                      onChange={(e) => setExcludeSettled(e.target.checked)}
+                      className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                    />
+                    <span>Exclude settled periods from running totals</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                  {selectedPeriods.map((periodKey) => {
+                    const [y, m] = periodKey.split('-');
+                    const mVal = parseInt(m, 10);
+                    const mName = months.find((mo) => mo.value === mVal)?.label;
+                    const settled = isPeriodSettled(parseInt(y, 10), mVal);
+
+                    return (
+                      <div
+                        key={periodKey}
+                        className={`flex items-center justify-between p-3.5 rounded-xl border transition-all ${
+                          settled
+                            ? 'bg-emerald-500/5 border-emerald-500/20 text-slate-350'
+                            : 'bg-slate-900/40 border-slate-800/60 text-white'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <span className="text-xs font-bold">{mName} {y}</span>
+                          <div className="flex items-center space-x-1.5">
+                            <span className={`inline-block h-1.5 w-1.5 rounded-full ${settled ? 'bg-emerald-450' : 'bg-amber-400'}`} />
+                            <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-400">
+                              {settled ? 'Settled' : 'Active'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleToggleSettlement(parseInt(y, 10), mVal, !settled)}
+                          className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${
+                            settled
+                              ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'
+                              : 'bg-cyan-500 text-black border-transparent hover:bg-cyan-400'
+                          }`}
+                        >
+                          {settled ? 'Reopen Period' : 'Mark as Settled'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Main Settlements Table */}
             <div className="glass-card p-6 rounded-2xl border border-slate-800">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold text-white">Detailed Partner Settlement Ledger</h3>
                 <span className="text-xs text-slate-400">Calculated Dynamically from Transactions</span>
               </div>
-              <div className="hidden lg:block overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-800 text-sm whitespace-nowrap">
-                  <thead>
-                    <tr className="text-slate-400 text-left font-semibold">
-                      <th className="pb-3 pr-4">Partner</th>
-                      {viewType === 'monthly' && <th className="pb-3 px-4 text-right">Ownership %</th>}
-                      <th className="pb-3 px-4 text-right">Profit Share</th>
-                      <th className="pb-3 px-4 text-right">Salaries Paid Personally</th>
-                      <th className="pb-3 px-4 text-right">Expenses Paid Personally</th>
-                      <th className="pb-3 px-4 text-right">Adjustments (Net)</th>
-                      <th className="pb-3 px-4 text-right text-orange-400/80">Client Direct Salary Received</th>
-                      <th className="pb-3 px-4 text-right bg-slate-900/40 rounded-t-lg text-amber-400">Total Money Received</th>
-                      <th className="pb-3 pl-6 text-right bg-slate-900/60 rounded-t-lg">Final Settlement</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {data.partnerSettlements?.map((p: SettlementItem) => {
-                      const drilldownPeriods = viewType === 'yearly'
-                        ? Array.from({ length: 12 }, (_, i) => `${selectedYear}-${String(i + 1).padStart(2, '0')}`)
-                        : selectedPeriods;
-
-                      return (
-                        <tr key={p.partnerId} className="text-slate-300 hover:bg-slate-800/10">
-                          <td className="py-4 pr-4 font-semibold text-white">{p.partnerName}</td>
-                          {viewType === 'monthly' && (
-                            <td className="py-4 px-4 text-right font-medium text-cyan-400">
-                              {p.ownershipPercentage?.toFixed(2)}%
-                            </td>
-                          )}
-                          <td 
-                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'profit_share', drilldownPeriods)}
-                            className="py-4 px-4 text-right cursor-pointer hover:text-cyan-400 font-semibold underline decoration-dotted decoration-slate-700"
-                            title="Audit Profit Share breakdown"
-                          >
-                            {formatCurrency(p.profitShare)}
-                          </td>
-                          <td 
-                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'salaries_paid', drilldownPeriods)}
-                            className="py-4 px-4 text-right text-slate-400 cursor-pointer hover:text-cyan-400 underline decoration-dotted decoration-slate-700"
-                            title="View paid salaries list"
-                          >
-                            {formatCurrency(p.salariesPaid)}
-                          </td>
-                          <td 
-                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'expenses_paid', drilldownPeriods)}
-                            className="py-4 px-4 text-right text-slate-400 cursor-pointer hover:text-cyan-400 underline decoration-dotted decoration-slate-700"
-                            title="View paid expenses list"
-                          >
-                            {formatCurrency(p.expensesPaid)}
-                          </td>
-                          <td 
-                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'adjustments', drilldownPeriods)}
-                            className={`py-4 px-4 text-right cursor-pointer hover:text-cyan-400 underline decoration-dotted decoration-slate-700 ${p.netAdjustment >= 0 ? 'text-emerald-500/80' : 'text-rose-500/80'}`}
-                            title="View adjustments ledger"
-                          >
-                            {p.netAdjustment >= 0 ? '+' : ''}{formatCurrency(p.netAdjustment)}
-                          </td>
-                          <td 
-                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'client_direct', drilldownPeriods)}
-                            className="py-4 px-4 text-right text-orange-400 cursor-pointer hover:text-cyan-400 underline decoration-dotted decoration-slate-700"
-                            title="View received direct salaries"
-                          >
-                            {formatCurrency(p.clientDirectSalaryReceived)}
-                          </td>
-                          <td 
-                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'project_payments', drilldownPeriods)}
-                            className="py-4 px-4 text-right bg-slate-900/30 text-amber-400 font-semibold border-l border-slate-850 cursor-pointer hover:text-cyan-400 underline decoration-dotted decoration-slate-700"
-                            title="View received project payments"
-                          >
-                            {formatCurrency(p.totalCompanyMoneyReceived)}
-                          </td>
-                          <td className={`py-4 pl-6 text-right font-bold text-base bg-slate-900/50 border-l border-slate-800 rounded-b-lg ${
-                            p.netBalance >= 0 ? 'text-emerald-400' : 'text-rose-500'
-                          }`}>
-                            <span className="flex items-center justify-end space-x-1">
-                              {p.netBalance >= 0 ? (
-                                <ArrowUpRight className="h-4 w-4 text-emerald-400" />
-                              ) : (
-                                <ArrowDownLeft className="h-4 w-4 text-rose-500" />
-                              )}
-                              <span>{formatCurrency(p.netBalance)}</span>
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile Card Ledger Layout */}
-              <div className="lg:hidden space-y-4">
-                {data.partnerSettlements?.map((p: SettlementItem) => {
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {displaySettlements?.map((p: SettlementItem) => {
                   const isReceivable = p.netBalance >= 0;
                   const drilldownPeriods = viewType === 'yearly'
                     ? Array.from({ length: 12 }, (_, i) => `${selectedYear}-${String(i + 1).padStart(2, '0')}`)
                     : selectedPeriods;
+                  
+                  // Compute gross contributions
+                  const grossEarnings = Number(p.profitShare) + Number(p.salariesPaid) + Number(p.expensesPaid);
 
                   return (
                     <div
                       key={p.partnerId}
-                      className="border border-slate-800 rounded-xl p-4 bg-slate-950/20 space-y-3"
+                      className="border border-slate-800 rounded-2xl p-5 bg-slate-950/25 flex flex-col justify-between space-y-4 shadow-lg hover:border-slate-700/85 transition-all duration-350"
                     >
-                      <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
-                        <span className="font-bold text-white text-base">{p.partnerName}</span>
+                      {/* Partner Identity Header */}
+                      <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                        <span className="font-bold text-white text-base flex items-center">
+                          <span className="h-2.5 w-2.5 rounded-full bg-cyan-400 mr-2" />
+                          {p.partnerName}
+                        </span>
                         {viewType === 'monthly' && p.ownershipPercentage !== undefined && (
-                          <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-900 text-cyan-400 border border-slate-800">
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-900 text-cyan-400 border border-slate-850">
                             Ownership: {p.ownershipPercentage?.toFixed(2)}%
                           </span>
                         )}
                       </div>
 
-                      <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs">
-                        <div 
-                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'profit_share', drilldownPeriods)}
-                          className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
-                          title="Audit Profit Share breakdown"
-                        >
-                          <span>Profit Share:</span>
-                          <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">{formatCurrency(p.profitShare)}</span>
+                      {/* Cash Flow Step-by-Step Breakdown */}
+                      <div className="flex-1 space-y-4 text-xs">
+                        {/* Section 1: Earnings & Outlays */}
+                        <div className="space-y-2">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-800/40 pb-1">
+                            Earnings & Outlays (+)
+                          </p>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'profit_share', drilldownPeriods)}
+                            className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="Audit Profit Share breakdown"
+                          >
+                            <span>Profit Share (Base Earnings):</span>
+                            <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600 whitespace-nowrap">{formatCurrency(p.profitShare)}</span>
+                          </div>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'salaries_paid', drilldownPeriods)}
+                            className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="View paid salaries list"
+                          >
+                            <span>Salaries Paid Personally:</span>
+                            <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600 whitespace-nowrap">+{formatCurrency(p.salariesPaid)}</span>
+                          </div>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'expenses_paid', drilldownPeriods)}
+                            className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="View paid expenses list"
+                          >
+                            <span>Expenses Paid Personally:</span>
+                            <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600 whitespace-nowrap">+{formatCurrency(p.expensesPaid)}</span>
+                          </div>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'adjustments', drilldownPeriods)}
+                            className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="View adjustments ledger"
+                          >
+                            <span>Net Adjustments:</span>
+                            <span className={`font-semibold group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600 whitespace-nowrap ${p.netAdjustment >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
+                              {p.netAdjustment >= 0 ? '+' : ''}{formatCurrency(p.netAdjustment)}
+                            </span>
+                          </div>
+                          
+                          {/* Gross Earnings Subtotal */}
+                          <div className="flex justify-between border-t border-slate-800/40 pt-1.5 font-semibold text-[11px] text-slate-350">
+                            <span>Gross Earnings Owed:</span>
+                            <span className="whitespace-nowrap">{formatCurrency(grossEarnings + Number(p.netAdjustment))}</span>
+                          </div>
                         </div>
-                        <div 
-                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'salaries_paid', drilldownPeriods)}
-                          className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
-                          title="View paid salaries list"
-                        >
-                          <span>Salaries Paid:</span>
-                          <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">+{formatCurrency(p.salariesPaid)}</span>
-                        </div>
-                        <div 
-                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'expenses_paid', drilldownPeriods)}
-                          className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
-                          title="View paid expenses list"
-                        >
-                          <span>Expenses Paid:</span>
-                          <span className="font-semibold text-slate-200 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">+{formatCurrency(p.expensesPaid)}</span>
-                        </div>
-                        <div 
-                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'adjustments', drilldownPeriods)}
-                          className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
-                          title="View adjustments ledger"
-                        >
-                          <span>Adjustments:</span>
-                          <span className={`font-semibold group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600 ${p.netAdjustment >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
-                            {p.netAdjustment >= 0 ? '+' : ''}{formatCurrency(p.netAdjustment)}
-                          </span>
-                        </div>
-                        
-                        <div 
-                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'client_direct', drilldownPeriods)}
-                          className="col-span-2 border-t border-slate-800/60 pt-2 flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
-                          title="View received direct salaries"
-                        >
-                          <span>Client Direct Salary:</span>
-                          <span className="font-semibold text-orange-400 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">{formatCurrency(p.clientDirectSalaryReceived)}</span>
-                        </div>
-                        <div 
-                          onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'project_payments', drilldownPeriods)}
-                          className="col-span-2 flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
-                          title="View received project payments"
-                        >
-                          <span>Total Money Received:</span>
-                          <span className="font-semibold text-amber-400 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-600">{formatCurrency(p.totalCompanyMoneyReceived)}</span>
+
+                        {/* Section 2: Money Already Received */}
+                        <div className="space-y-2 bg-slate-900/10 p-3 rounded-xl border border-slate-800/40">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-800/30 pb-1">
+                            Draws & Withdrawals (–)
+                          </p>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'client_direct', drilldownPeriods)}
+                            className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="View received direct salaries"
+                          >
+                            <span>Client Direct Salary Received:</span>
+                            <span className="font-medium text-rose-500/80 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650 whitespace-nowrap">-{formatCurrency(p.clientDirectSalaryReceived)}</span>
+                          </div>
+                          <div 
+                            onClick={() => handleDrilldown(p.partnerId, p.partnerName, 'project_payments', drilldownPeriods)}
+                            className="flex justify-between text-slate-400 cursor-pointer hover:text-cyan-400 group transition-colors"
+                            title="View received project payments"
+                          >
+                            <span>Project Payments Received:</span>
+                            <span className="font-medium text-rose-500/80 group-hover:text-cyan-400 underline decoration-dotted decoration-slate-650 whitespace-nowrap">-{formatCurrency(p.companyMoneyReceived)}</span>
+                          </div>
+                          <div className="flex justify-between border-t border-slate-800/40 pt-1.5 font-bold text-slate-300">
+                            <span>Total Money Received:</span>
+                            <span className="text-amber-400 whitespace-nowrap">{formatCurrency(p.totalCompanyMoneyReceived)}</span>
+                          </div>
                         </div>
                       </div>
 
-                      <div className={`border-t border-slate-800/80 pt-2 flex justify-between items-center text-sm font-bold ${
-                        isReceivable ? 'text-emerald-400' : 'text-rose-500'
+                      {/* Card Footer Final Settlement Balance */}
+                      <div className={`p-4 rounded-xl flex flex-col space-y-2 font-bold text-sm border ${
+                        isReceivable 
+                          ? 'bg-emerald-500/5 border-emerald-500/10 text-emerald-400' 
+                          : 'bg-rose-500/5 border-rose-500/10 text-rose-500'
                       }`}>
-                        <span className="flex items-center space-x-1">
-                          {isReceivable ? (
-                            <ArrowUpRight className="h-4 w-4 text-emerald-400" />
-                          ) : (
-                            <ArrowDownLeft className="h-4 w-4 text-rose-500" />
-                          )}
-                          <span>{isReceivable ? 'Receivable' : 'Payable'}</span>
-                        </span>
-                        <span className="text-base font-extrabold">{formatCurrency(p.netBalance)}</span>
+                        <div className="flex justify-between items-center w-full">
+                          <span className="flex items-center space-x-1">
+                            {isReceivable ? (
+                              <ArrowUpRight className="h-4 w-4 text-emerald-400" />
+                            ) : (
+                              <ArrowDownLeft className="h-4 w-4 text-rose-500" />
+                            )}
+                            <span>{isReceivable ? 'Receivable (Owed by Company)' : 'Payable (Owed to Company)'}</span>
+                          </span>
+                          <span className="text-base font-extrabold whitespace-nowrap">{formatCurrency(p.netBalance)}</span>
+                        </div>
+
+                        {hasSettledPeriods() && (() => {
+                          const breakdown = getPartnerFinancialBreakdown(p.partnerId);
+                          return (
+                            <div className="pt-2 border-t border-slate-800/40 space-y-1 text-[11px] text-slate-400 font-medium">
+                              <div className="flex justify-between">
+                                <span>Total:</span>
+                                <span className="font-semibold text-slate-200">{formatCurrency(Math.abs(breakdown.total))}</span>
+                              </div>
+                              <div className="flex justify-between text-emerald-400/90">
+                                <span className="flex items-center">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                                  Settled:
+                                </span>
+                                <span className="font-bold">{formatCurrency(Math.abs(breakdown.settled))}</span>
+                              </div>
+                              <div className="flex justify-between text-amber-500/95">
+                                <span className="flex items-center">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 mr-1.5"></span>
+                                  Outstanding:
+                                </span>
+                                <span className="font-bold">{formatCurrency(Math.abs(breakdown.unsettled))}</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -563,20 +783,42 @@ export default function SettlementPage() {
                   <ArrowUpRight className="h-5 w-5 mr-1.5" /> Receivables (Owed to Partner)
                 </h4>
                 <div className="space-y-3">
-                  {data.partnerSettlements?.filter((p: any) => p.netBalance >= 0).length === 0 ? (
+                  {displaySettlements?.filter((p: any) => p.netBalance >= 0).length === 0 ? (
                     <p className="text-sm text-slate-500">No partner receivables for this period.</p>
                   ) : (
-                    data.partnerSettlements
+                    displaySettlements
                       ?.filter((p: any) => p.netBalance >= 0)
-                      .map((p: any) => (
-                        <div
-                          key={p.partnerId}
-                          className="flex justify-between items-center p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10"
-                        >
-                          <span className="text-sm font-semibold text-white">{p.partnerName}</span>
-                          <span className="text-sm font-bold text-emerald-400">{formatCurrency(p.netBalance)}</span>
-                        </div>
-                      ))
+                      .map((p: any) => {
+                        const breakdown = getPartnerFinancialBreakdown(p.partnerId);
+                        return (
+                          <div
+                            key={p.partnerId}
+                            className="flex flex-col p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10 space-y-2"
+                          >
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-semibold text-white">{p.partnerName}</span>
+                              <span className="text-sm font-bold text-emerald-400">{formatCurrency(p.netBalance)}</span>
+                            </div>
+                            
+                            {hasSettledPeriods() && (
+                              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-emerald-500/10 text-[10px] text-slate-400">
+                                <div>
+                                  <p className="text-slate-500 uppercase tracking-wider font-bold text-[8px]">Total</p>
+                                  <p className="font-semibold text-slate-350">{formatCurrency(Math.abs(breakdown.total))}</p>
+                                </div>
+                                <div>
+                                  <p className="text-emerald-500/70 uppercase tracking-wider font-bold text-[8px]">Settled</p>
+                                  <p className="font-semibold text-emerald-400">{formatCurrency(Math.abs(breakdown.settled))}</p>
+                                </div>
+                                <div>
+                                  <p className="text-amber-500/70 uppercase tracking-wider font-bold text-[8px]">Outstanding</p>
+                                  <p className="font-semibold text-amber-400">{formatCurrency(Math.abs(breakdown.unsettled))}</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
                   )}
                 </div>
               </div>
@@ -587,22 +829,44 @@ export default function SettlementPage() {
                   <ArrowDownLeft className="h-5 w-5 mr-1.5" /> Payables (Owed by Partner)
                 </h4>
                 <div className="space-y-3">
-                  {data.partnerSettlements?.filter((p: any) => p.netBalance < 0).length === 0 ? (
+                  {displaySettlements?.filter((p: any) => p.netBalance < 0).length === 0 ? (
                     <p className="text-sm text-slate-500">No partner payables for this period.</p>
                   ) : (
-                    data.partnerSettlements
+                    displaySettlements
                       ?.filter((p: any) => p.netBalance < 0)
-                      .map((p: any) => (
-                        <div
-                          key={p.partnerId}
-                          className="flex justify-between items-center p-3 rounded-xl bg-rose-500/5 border border-rose-500/10"
-                        >
-                          <span className="text-sm font-semibold text-white">{p.partnerName}</span>
-                          <span className="text-sm font-bold text-rose-400">
-                            {formatCurrency(Math.abs(p.netBalance))}
-                          </span>
-                        </div>
-                      ))
+                      .map((p: any) => {
+                        const breakdown = getPartnerFinancialBreakdown(p.partnerId);
+                        return (
+                          <div
+                            key={p.partnerId}
+                            className="flex flex-col p-3 rounded-xl bg-rose-500/5 border border-rose-500/10 space-y-2"
+                          >
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-semibold text-white">{p.partnerName}</span>
+                              <span className="text-sm font-bold text-rose-400">
+                                {formatCurrency(Math.abs(p.netBalance))}
+                              </span>
+                            </div>
+                            
+                            {hasSettledPeriods() && (
+                              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-rose-500/10 text-[10px] text-slate-400">
+                                <div>
+                                  <p className="text-slate-500 uppercase tracking-wider font-bold text-[8px]">Total</p>
+                                  <p className="font-semibold text-slate-350">{formatCurrency(Math.abs(breakdown.total))}</p>
+                                </div>
+                                <div>
+                                  <p className="text-emerald-500/70 uppercase tracking-wider font-bold text-[8px]">Settled</p>
+                                  <p className="font-semibold text-emerald-400">{formatCurrency(Math.abs(breakdown.settled))}</p>
+                                </div>
+                                <div>
+                                  <p className="text-amber-500/70 uppercase tracking-wider font-bold text-[8px]">Outstanding</p>
+                                  <p className="font-semibold text-amber-400">{formatCurrency(Math.abs(breakdown.unsettled))}</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
                   )}
                 </div>
               </div>
