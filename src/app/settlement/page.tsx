@@ -3,8 +3,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import SidebarLayout from '@/components/SidebarLayout';
 import { useAuth } from '@/context/AuthContext';
-import { Calendar, CalendarDays, RefreshCw, AlertCircle, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { Calendar, CalendarDays, RefreshCw, AlertCircle, ArrowUpRight, ArrowDownLeft, Info } from 'lucide-react';
 import DrilldownModal from '@/components/DrilldownModal';
+import ConfirmationModal from '@/components/ConfirmationModal';
+import CalculationBreakdownModal from '@/components/CalculationBreakdownModal';
 
 interface SettlementItem {
   partnerId: string;
@@ -49,6 +51,54 @@ export default function SettlementPage() {
     type: 'profit_share',
     periods: [],
   });
+
+  // Multi-select & Batch Progress States
+  const [checkedPeriods, setCheckedPeriods] = useState<string[]>([]);
+  const [bulkProgress, setBulkProgress] = useState<{
+    active: boolean;
+    current: number;
+    total: number;
+    mode: 'settling' | 'reopening' | null;
+  }>({ active: false, current: 0, total: 0, mode: null });
+
+  // Calculation Breakdown Modal States
+  const [breakdownModalOpen, setBreakdownModalOpen] = useState(false);
+  const [breakdownModalPartner, setBreakdownModalPartner] = useState<string>('');
+  const [breakdownModalData, setBreakdownModalData] = useState<any | null>(null);
+
+  const openBreakdownModal = (partnerName: string, item: any) => {
+    setBreakdownModalPartner(partnerName);
+    setBreakdownModalData({
+      profitShare: item.profitShare,
+      credits: item.credits || 0,
+      debits: item.debits || 0,
+      salariesPaid: item.salariesPaid || 0,
+      expensesPaid: item.expensesPaid || 0,
+      totalCompanyMoneyReceived: item.totalCompanyMoneyReceived || 0,
+      netBalance: item.netBalance,
+    });
+    setBreakdownModalOpen(true);
+  };
+
+  // Confirmation Modal States
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    type?: 'danger' | 'warning' | 'info' | 'success';
+    onConfirm: () => void | Promise<void>;
+  }>({
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const triggerConfirm = (config: typeof confirmConfig) => {
+    setConfirmConfig(config);
+    setConfirmOpen(true);
+  };
 
   const handleDrilldown = (
     partnerId: string,
@@ -125,13 +175,7 @@ export default function SettlementPage() {
     return settlementStatuses.some((s) => s.year === year && s.month === month && s.isSettled);
   };
 
-  const handleToggleSettlement = async (year: number, month: number, targetSettled: boolean) => {
-    const actionText = targetSettled ? 'settle' : 'reopen';
-    const mName = months.find((m) => m.value === month)?.label;
-    if (!confirm(`Are you sure you want to ${actionText} the settlement period for ${mName} ${year}?`)) {
-      return;
-    }
-
+  const performToggleSettlement = async (year: number, month: number, targetSettled: boolean) => {
     try {
       const res = await fetch('/api/settlement/status', {
         method: 'POST',
@@ -148,8 +192,95 @@ export default function SettlementPage() {
 
       await Promise.all([fetchSettlementStatuses(), fetchData()]);
     } catch (err: any) {
-      alert(err.message || 'Something went wrong');
+      setError(err.message || 'Something went wrong');
     }
+  };
+
+  const handleToggleSettlement = (year: number, month: number, targetSettled: boolean) => {
+    const actionText = targetSettled ? 'settle' : 'reopen';
+    const mName = months.find((m) => m.value === month)?.label;
+    
+    triggerConfirm({
+      title: targetSettled ? 'Settle Period' : 'Reopen Period',
+      message: `Are you sure you want to ${actionText} the settlement period for ${mName} ${year}?`,
+      confirmText: targetSettled ? 'Settle' : 'Reopen',
+      type: targetSettled ? 'success' : 'warning',
+      onConfirm: () => performToggleSettlement(year, month, targetSettled),
+    });
+  };
+
+  const handleBulkToggleSettlement = (targetSettled: boolean) => {
+    const actionText = targetSettled ? 'settle' : 'reopen';
+    const periodsToUpdate = checkedPeriods.filter(periodKey => {
+      const [y, m] = periodKey.split('-');
+      const settled = isPeriodSettled(parseInt(y, 10), parseInt(m, 10));
+      return settled !== targetSettled;
+    });
+
+    if (periodsToUpdate.length === 0) {
+      triggerConfirm({
+        title: 'No Periods to Update',
+        message: `All selected periods are already ${targetSettled ? 'settled' : 'active/open'}.`,
+        confirmText: 'Okay',
+        cancelText: 'Close',
+        type: 'info',
+        onConfirm: () => {},
+      });
+      return;
+    }
+
+    triggerConfirm({
+      title: targetSettled ? 'Bulk Settle Periods' : 'Bulk Reopen Periods',
+      message: `Are you sure you want to ${actionText} all ${periodsToUpdate.length} checked periods at once?`,
+      confirmText: targetSettled ? 'Settle Selected' : 'Reopen Selected',
+      type: targetSettled ? 'success' : 'danger',
+      onConfirm: async () => {
+        try {
+          setBulkProgress({
+            active: true,
+            current: 0,
+            total: periodsToUpdate.length,
+            mode: targetSettled ? 'settling' : 'reopening',
+          });
+
+          for (let i = 0; i < periodsToUpdate.length; i++) {
+            const periodKey = periodsToUpdate[i];
+            const [y, m] = periodKey.split('-');
+            const year = parseInt(y, 10);
+            const month = parseInt(m, 10);
+
+            const res = await fetch('/api/settlement/status', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                year,
+                month,
+                isSettled: targetSettled,
+                notes: targetSettled ? 'Marked settled via bulk action' : null
+              })
+            });
+
+            if (!res.ok) {
+              throw new Error(`Failed to update ${periodKey}`);
+            }
+
+            setBulkProgress(prev => ({
+              ...prev,
+              current: i + 1,
+            }));
+          }
+
+          setCheckedPeriods([]);
+          await Promise.all([fetchSettlementStatuses(), fetchData()]);
+        } catch (err: any) {
+          setError(err.message || 'Bulk update failed');
+        } finally {
+          setTimeout(() => {
+            setBulkProgress({ active: false, current: 0, total: 0, mode: null });
+          }, 600);
+        }
+      }
+    });
   };
 
   const getDisplaySettlements = () => {
@@ -553,66 +684,143 @@ export default function SettlementPage() {
         ) : data ? (
           <div className="space-y-8 animate-fade-in">
             {/* Settlement Status Management Panel (only for monthly view) */}
-            {viewType === 'monthly' && selectedPeriods.length > 0 && (
-              <div className="glass-card p-6 rounded-2xl border border-slate-800 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-800/80 pb-3 gap-3">
-                  <div>
-                    <h3 className="text-base font-bold text-white">Period Settlement Status</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">Manage closing status for selected billing months</p>
-                  </div>
-                  <label className="flex items-center space-x-2 text-xs text-slate-300 select-none cursor-pointer hover:text-white transition-colors bg-[#0b0f19] border border-slate-800 px-3 py-1.5 rounded-lg">
-                    <input
-                      type="checkbox"
-                      checked={excludeSettled}
-                      onChange={(e) => setExcludeSettled(e.target.checked)}
-                      className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
-                    />
-                    <span>Exclude settled periods from running totals</span>
-                  </label>
-                </div>
+            {viewType === 'monthly' && selectedPeriods.length > 0 && (() => {
+              const allChecked = selectedPeriods.length > 0 && selectedPeriods.every(p => checkedPeriods.includes(p));
+              const someChecked = selectedPeriods.some(p => checkedPeriods.includes(p)) && !allChecked;
+              const checkedCount = checkedPeriods.length;
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {selectedPeriods.map((periodKey) => {
-                    const [y, m] = periodKey.split('-');
-                    const mVal = parseInt(m, 10);
-                    const mName = months.find((mo) => mo.value === mVal)?.label;
-                    const settled = isPeriodSettled(parseInt(y, 10), mVal);
+              const handleMasterCheckboxChange = () => {
+                if (allChecked) {
+                  setCheckedPeriods([]);
+                } else {
+                  setCheckedPeriods(selectedPeriods);
+                }
+              };
 
-                    return (
-                      <div
-                        key={periodKey}
-                        className={`flex items-center justify-between p-3.5 rounded-xl border transition-all ${
-                          settled
-                            ? 'bg-emerald-500/5 border-emerald-500/20 text-slate-350'
-                            : 'bg-slate-900/40 border-slate-800/60 text-white'
-                        }`}
-                      >
-                        <div className="space-y-1">
-                          <span className="text-xs font-bold">{mName} {y}</span>
-                          <div className="flex items-center space-x-1.5">
-                            <span className={`inline-block h-1.5 w-1.5 rounded-full ${settled ? 'bg-emerald-450' : 'bg-amber-400'}`} />
-                            <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-400">
-                              {settled ? 'Settled' : 'Active'}
-                            </span>
-                          </div>
+              return (
+                <div className="glass-card p-6 rounded-2xl border border-slate-800 space-y-4">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-slate-800/80 pb-3 gap-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between flex-1 gap-3">
+                      <div className="flex items-center space-x-3">
+                        <label className="flex items-center space-x-2 text-slate-400 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={allChecked}
+                            ref={(el) => {
+                              if (el) {
+                                el.indeterminate = someChecked;
+                              }
+                            }}
+                            onChange={handleMasterCheckboxChange}
+                            className="rounded border-slate-850 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4.5 w-4.5"
+                          />
+                        </label>
+                        <div>
+                          <h3 className="text-base font-bold text-white">Period Settlement Status</h3>
+                          <p className="text-xs text-slate-400 mt-0.5">Manage closing status for selected billing months</p>
                         </div>
+                      </div>
+                      
+                      {checkedCount > 0 && (
+                        <div className="flex items-center space-x-2 animate-fade-in">
+                          <button
+                            type="button"
+                            onClick={() => handleBulkToggleSettlement(true)}
+                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded-lg transition-colors border border-emerald-500/20 shadow-md animate-fade-in"
+                          >
+                            Settle Selected ({checkedCount})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleBulkToggleSettlement(false)}
+                            className="px-2.5 py-1.5 bg-rose-955/40 hover:bg-rose-900/50 text-rose-300 text-[11px] font-bold rounded-lg transition-colors border border-rose-500/20 shadow-md animate-fade-in"
+                          >
+                            Reopen Selected ({checkedCount})
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <label className="flex items-center space-x-2 text-xs text-slate-300 select-none cursor-pointer hover:text-white transition-colors bg-[#0b0f19] border border-slate-800 px-3 py-1.5 rounded-lg">
+                      <input
+                        type="checkbox"
+                        checked={excludeSettled}
+                        onChange={(e) => setExcludeSettled(e.target.checked)}
+                        className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                      />
+                      <span>Exclude settled periods from running totals</span>
+                    </label>
+                  </div>
 
-                        <button
-                          onClick={() => handleToggleSettlement(parseInt(y, 10), mVal, !settled)}
-                          className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${
-                            settled
-                              ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'
-                              : 'bg-cyan-500 text-black border-transparent hover:bg-cyan-400'
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                    {selectedPeriods.map((periodKey) => {
+                      const [y, m] = periodKey.split('-');
+                      const mVal = parseInt(m, 10);
+                      const mName = months.find((mo) => mo.value === mVal)?.label;
+                      const settled = isPeriodSettled(parseInt(y, 10), mVal);
+                      const isChecked = checkedPeriods.includes(periodKey);
+
+                      const toggleChecked = () => {
+                        if (isChecked) {
+                          setCheckedPeriods(checkedPeriods.filter(p => p !== periodKey));
+                        } else {
+                          setCheckedPeriods([...checkedPeriods, periodKey]);
+                        }
+                      };
+
+                      return (
+                        <div
+                          key={periodKey}
+                          onClick={toggleChecked}
+                          className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer ${
+                            isChecked
+                              ? 'bg-[#155e75]/15 border-cyan-500/40 ring-1 ring-cyan-500/35 shadow-[0_0_12px_rgba(6,182,212,0.15)] text-white'
+                              : settled
+                                ? 'bg-emerald-500/5 border-emerald-500/20 text-slate-350 hover:border-slate-700/50'
+                                : 'bg-slate-900/40 border-slate-800/60 text-white hover:border-slate-750'
                           }`}
                         >
-                          {settled ? 'Reopen Period' : 'Mark as Settled'}
-                        </button>
-                      </div>
-                    );
-                  })}
+                          <div className="flex items-center space-x-3.5">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleChecked();
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="rounded border-slate-800 bg-slate-950 text-cyan-500 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                            />
+                            <div className="space-y-1">
+                              <span className="text-xs font-bold">{mName} {y}</span>
+                              <div className="flex items-center space-x-1.5">
+                                <span className={`inline-block h-1.5 w-1.5 rounded-full ${settled ? 'bg-emerald-450' : 'bg-amber-400'}`} />
+                                <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-400">
+                                  {settled ? 'Settled' : 'Active'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleSettlement(parseInt(y, 10), mVal, !settled);
+                            }}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${
+                              settled
+                                ? 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white'
+                                : 'bg-cyan-500 text-black border-transparent hover:bg-cyan-400'
+                            }`}
+                          >
+                            {settled ? 'Reopen' : 'Settle'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Main Settlements Table */}
             <div className="glass-card p-6 rounded-2xl border border-slate-800">
@@ -732,38 +940,59 @@ export default function SettlementPage() {
                           : 'bg-rose-500/5 border-rose-500/10 text-rose-500'
                       }`}>
                         <div className="flex justify-between items-center w-full">
-                          <span className="flex items-center space-x-1">
+                          <span className="flex items-center space-x-1.5">
                             {isReceivable ? (
-                              <ArrowUpRight className="h-4 w-4 text-emerald-400" />
+                              <>
+                                <ArrowUpRight className="h-4 w-4 text-emerald-400" />
+                                <span>Receivable (Owed to Partner)</span>
+                              </>
                             ) : (
-                              <ArrowDownLeft className="h-4 w-4 text-rose-500" />
+                              <>
+                                <ArrowDownLeft className="h-4 w-4 text-rose-500" />
+                                <span>Payable (Owed to Company)</span>
+                              </>
                             )}
-                            <span>{isReceivable ? 'Receivable (Owed by Company)' : 'Payable (Owed to Company)'}</span>
+                            <button
+                              type="button"
+                              onClick={() => openBreakdownModal(p.partnerName, p)}
+                              className="p-0.5 text-slate-400 hover:text-white rounded transition-colors"
+                              title="Show Calculation Breakdown"
+                            >
+                              <Info className="h-3.5 w-3.5" />
+                            </button>
                           </span>
                           <span className="text-base font-extrabold whitespace-nowrap">{formatCurrency(p.netBalance)}</span>
                         </div>
 
                         {hasSettledPeriods() && (() => {
                           const breakdown = getPartnerFinancialBreakdown(p.partnerId);
+                          const formatSigned = (val: number) => {
+                            const formatted = formatCurrency(Math.abs(val));
+                            if (val > 0) return `+${formatted}`;
+                            if (val < 0) return `-${formatted}`;
+                            return `₹0.00`;
+                          };
                           return (
                             <div className="pt-2 border-t border-slate-800/40 space-y-1 text-[11px] text-slate-400 font-medium">
                               <div className="flex justify-between">
-                                <span>Total:</span>
-                                <span className="font-semibold text-slate-200">{formatCurrency(Math.abs(breakdown.total))}</span>
+                                <span>Total Net Balance:</span>
+                                <span className={`font-bold ${breakdown.total >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {formatSigned(breakdown.total)}
+                                </span>
                               </div>
                               <div className="flex justify-between text-emerald-400/90">
                                 <span className="flex items-center">
                                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
                                   Settled:
                                 </span>
-                                <span className="font-bold">{formatCurrency(Math.abs(breakdown.settled))}</span>
+                                <span className="font-bold">{formatSigned(breakdown.settled)}</span>
                               </div>
                               <div className="flex justify-between text-amber-500/95">
                                 <span className="flex items-center">
                                   <span className="h-1.5 w-1.5 rounded-full bg-amber-500 mr-1.5"></span>
                                   Outstanding:
                                 </span>
-                                <span className="font-bold">{formatCurrency(Math.abs(breakdown.unsettled))}</span>
+                                <span className="font-bold">{formatSigned(breakdown.unsettled)}</span>
                               </div>
                             </div>
                           );
@@ -882,6 +1111,58 @@ export default function SettlementPage() {
         partnerName={drilldownConfig.partnerName}
         periods={drilldownConfig.periods}
         type={drilldownConfig.type}
+      />
+
+      <ConfirmationModal
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={confirmConfig.onConfirm}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        confirmText={confirmConfig.confirmText}
+        cancelText={confirmConfig.cancelText}
+        type={confirmConfig.type}
+      />
+
+      {bulkProgress.active && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
+          <div className="max-w-md w-full glass-card p-6 rounded-2xl border border-slate-800 space-y-5 shadow-2xl relative">
+            <div className="space-y-2 text-center">
+              <h3 className="text-lg font-bold text-white">
+                {bulkProgress.mode === 'settling' ? 'Settling Periods...' : 'Reopening Periods...'}
+              </h3>
+              <p className="text-xs text-slate-400 font-medium">
+                Please wait while we update period settlement statuses.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                <span>Progress</span>
+                <span className="text-cyan-400">
+                  {Math.round((bulkProgress.current / bulkProgress.total) * 100)}%
+                </span>
+              </div>
+              <div className="w-full bg-slate-950 h-2.5 rounded-full overflow-hidden border border-slate-900">
+                <div 
+                  className="bg-cyan-500 h-full rounded-full transition-all duration-300 shadow-[0_0_8px_rgba(6,182,212,0.6)]" 
+                  style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }}
+                />
+              </div>
+              <div className="flex justify-center">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500">
+                  Updated {bulkProgress.current} of {bulkProgress.total} periods
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      <CalculationBreakdownModal
+        isOpen={breakdownModalOpen}
+        onClose={() => setBreakdownModalOpen(false)}
+        partnerName={breakdownModalPartner}
+        data={breakdownModalData}
       />
     </SidebarLayout>
   );

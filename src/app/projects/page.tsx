@@ -9,6 +9,7 @@ import CSVImportModal from '@/components/CSVImportModal';
 import { useAuth } from '@/context/AuthContext';
 import { exportToCSV } from '@/lib/csvExport';
 import { Plus, Edit2, Trash2, Calendar, User, DollarSign, Upload } from 'lucide-react';
+import ConfirmationModal from '@/components/ConfirmationModal';
 
 interface Project {
   id: string;
@@ -64,6 +65,26 @@ function ProjectsContent() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Confirmation Modal States
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    type?: 'danger' | 'warning' | 'info' | 'success';
+    onConfirm: () => void | Promise<void>;
+  }>({
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const triggerConfirm = (config: typeof confirmConfig) => {
+    setConfirmConfig(config);
+    setConfirmOpen(true);
+  };
 
   // CSV Import State
   const [showImportModal, setShowImportModal] = useState(false);
@@ -315,8 +336,7 @@ function ProjectsContent() {
     setShowProjectModal(true);
   };
 
-  const handleDeleteProject = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this project?')) return;
+  const performDeleteProject = async (id: string) => {
     setError('');
     try {
       const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
@@ -327,6 +347,16 @@ function ProjectsContent() {
     } catch (err: any) {
       setError(err.message);
     }
+  };
+
+  const handleDeleteProject = (id: string) => {
+    triggerConfirm({
+      title: 'Delete Project',
+      message: 'Are you sure you want to delete this project?',
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: () => performDeleteProject(id),
+    });
   };
 
   // Payment Submit
@@ -394,8 +424,7 @@ function ProjectsContent() {
     setShowPaymentModal(true);
   };
 
-  const handleDeletePayment = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this payment? This is a soft-delete and will update calculations.')) return;
+  const performDeletePayment = async (id: string) => {
     setError('');
     try {
       const res = await fetch(`/api/projects/payments/${id}`, { method: 'DELETE' });
@@ -405,6 +434,16 @@ function ProjectsContent() {
     } catch (err: any) {
       setError(err.message);
     }
+  };
+
+  const handleDeletePayment = (id: string) => {
+    triggerConfirm({
+      title: 'Delete Payment Record',
+      message: 'Are you sure you want to delete this payment? This is a soft-delete and will update calculations.',
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: () => performDeletePayment(id),
+    });
   };
 
   const formatCurrency = (val: any) => {
@@ -869,6 +908,141 @@ function ProjectsContent() {
             </div>
           </div>
         )}
+        {showPaymentModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="max-w-md w-full glass-card p-6 rounded-2xl border border-slate-800 space-y-4">
+              <h3 className="text-xl font-bold text-white">
+                {paymentIdToEdit ? 'Edit Payment Record' : 'Record Project Payment'}
+              </h3>
+              
+              {error && (
+                <div className="rounded-lg bg-red-950/40 border border-red-500/50 p-3 text-xs text-red-200 animate-pulse">
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handlePaymentSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Project</label>
+                  <select
+                    value={paymentProjectId}
+                    onChange={(e) => setPaymentProjectId(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-700 bg-slate-950 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  >
+                    {projectsList.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Partner Receiving payment</label>
+                  <select
+                    value={paymentPartnerId}
+                    onChange={(e) => setPaymentPartnerId(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-700 bg-slate-950 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  >
+                    {partnersList.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Amount (₹)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-700 bg-slate-900 placeholder-slate-500 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    placeholder="50000.00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Payment Date</label>
+                  <input
+                    type="date"
+                    required
+                    value={paymentDate}
+                    onChange={(e) => setPaymentDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-700 bg-slate-900 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Client Name</label>
+                  <input
+                    type="text"
+                    value={paymentClientName}
+                    onChange={(e) => setPaymentClientName(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-700 bg-slate-900 placeholder-slate-500 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    placeholder="E.g., Acme Corp"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Accounting Month</label>
+                    <select
+                      value={paymentPeriodMonth}
+                      onChange={(e) => setPaymentPeriodMonth(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-2 border border-slate-700 bg-slate-900 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                        <option key={m} value={m}>
+                          {new Date(2000, m - 1).toLocaleString('en-US', { month: 'long' })}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-1">Accounting Year</label>
+                    <select
+                      value={paymentPeriodYear}
+                      onChange={(e) => setPaymentPeriodYear(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-2 border border-slate-700 bg-slate-900 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                      {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex justify-end space-x-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPaymentModal(false)}
+                    className="px-4 py-2 bg-slate-800 text-slate-200 text-sm rounded-lg hover:bg-slate-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-cyan-500 text-black text-sm font-semibold rounded-lg hover:bg-cyan-400"
+                  >
+                    Record Payment
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      <ConfirmationModal
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={confirmConfig.onConfirm}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        confirmText={confirmConfig.confirmText}
+        cancelText={confirmConfig.cancelText}
+        type={confirmConfig.type}
+      />
       </div>
     </SidebarLayout>
   );

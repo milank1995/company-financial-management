@@ -14,10 +14,12 @@ import {
   ArrowDownLeft,
   Users,
   RefreshCw,
+  Info,
 } from 'lucide-react';
 import InteractiveDonutChart from '@/components/charts/InteractiveDonutChart';
 import InteractiveLineChart from '@/components/charts/InteractiveLineChart';
 import DrilldownModal from '@/components/DrilldownModal';
+import CalculationBreakdownModal from '@/components/CalculationBreakdownModal';
 
 interface MonthlyPartnerBreakdownTableProps {
   breakdown: any[];
@@ -258,6 +260,25 @@ export default function DashboardPage() {
     type: 'profit_share',
     periods: [],
   });
+
+  // Calculation Breakdown Modal States
+  const [breakdownModalOpen, setBreakdownModalOpen] = useState(false);
+  const [breakdownModalPartner, setBreakdownModalPartner] = useState<string>('');
+  const [breakdownModalData, setBreakdownModalData] = useState<any | null>(null);
+
+  const openBreakdownModal = (partnerName: string, item: any) => {
+    setBreakdownModalPartner(partnerName);
+    setBreakdownModalData({
+      profitShare: item.profitShare,
+      credits: item.credits || 0,
+      debits: item.debits || 0,
+      salariesPaid: item.salariesPaid || 0,
+      expensesPaid: item.expensesPaid || 0,
+      totalCompanyMoneyReceived: item.totalCompanyMoneyReceived || 0,
+      netBalance: item.netBalance,
+    });
+    setBreakdownModalOpen(true);
+  };
 
   const hasSettledPeriods = () => {
     if (!data) return false;
@@ -988,43 +1009,59 @@ export default function DashboardPage() {
                         isReceivable ? 'bg-emerald-500/5 text-emerald-400' : 'bg-rose-500/5 text-rose-500'
                       }`}>
                         <div className="flex items-center justify-between w-full">
-                          <span className="flex items-center space-x-1">
+                          <span className="flex items-center space-x-1.5">
                             {isReceivable ? (
                               <>
-                                <ArrowUpRight className="h-4 w-4 text-emerald-400 mr-1" />
-                                <span>Receivable (Company Owed)</span>
+                                <ArrowUpRight className="h-4 w-4 text-emerald-400" />
+                                <span>Receivable (Owed to Partner)</span>
                               </>
                             ) : (
                               <>
-                                <ArrowDownLeft className="h-4 w-4 text-rose-500 mr-1" />
-                                <span>Payable (Partner Owed)</span>
+                                <ArrowDownLeft className="h-4 w-4 text-rose-500" />
+                                <span>Payable (Owed to Company)</span>
                               </>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => openBreakdownModal(p.partnerName, p)}
+                              className="p-0.5 text-slate-400 hover:text-white rounded transition-colors"
+                              title="Show Calculation Breakdown"
+                            >
+                              <Info className="h-3.5 w-3.5" />
+                            </button>
                           </span>
-                          <span className="text-lg font-extrabold">{formatCurrency(p.netBalance)}</span>
+                          <span className="text-lg font-extrabold whitespace-nowrap">{formatCurrency(p.netBalance)}</span>
                         </div>
 
                         {hasSettledPeriods() && (() => {
                           const breakdown = getPartnerFinancialBreakdown(p.partnerId);
+                          const formatSigned = (val: number) => {
+                            const formatted = formatCurrency(Math.abs(val));
+                            if (val > 0) return `+${formatted}`;
+                            if (val < 0) return `-${formatted}`;
+                            return `₹0.00`;
+                          };
                           return (
                             <div className="mt-2.5 pt-2.5 border-t border-slate-800/60 space-y-1.5 text-[11px] text-slate-400 font-medium w-full">
                               <div className="flex justify-between">
-                                <span>Total Owed:</span>
-                                <span className="font-semibold text-slate-200">{formatCurrency(Math.abs(breakdown.total))}</span>
+                                <span>Total Net Balance:</span>
+                                <span className={`font-bold ${breakdown.total >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  {formatSigned(breakdown.total)}
+                                </span>
                               </div>
                               <div className="flex justify-between text-emerald-400/90">
                                 <span className="flex items-center">
                                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
                                   Settled:
                                 </span>
-                                <span className="font-bold">{formatCurrency(Math.abs(breakdown.settled))}</span>
+                                <span className="font-bold">{formatSigned(breakdown.settled)}</span>
                               </div>
                               <div className="flex justify-between text-amber-500/95">
                                 <span className="flex items-center">
                                   <span className="h-1.5 w-1.5 rounded-full bg-amber-500 mr-1.5"></span>
                                   Outstanding:
                                 </span>
-                                <span className="font-bold">{formatCurrency(Math.abs(breakdown.unsettled))}</span>
+                                <span className="font-bold">{formatSigned(breakdown.unsettled)}</span>
                               </div>
                             </div>
                           );
@@ -1138,6 +1175,13 @@ export default function DashboardPage() {
         partnerName={drilldownConfig.partnerName}
         periods={drilldownConfig.periods}
         type={drilldownConfig.type}
+      />
+
+      <CalculationBreakdownModal
+        isOpen={breakdownModalOpen}
+        onClose={() => setBreakdownModalOpen(false)}
+        partnerName={breakdownModalPartner}
+        data={breakdownModalData}
       />
     </SidebarLayout>
   );

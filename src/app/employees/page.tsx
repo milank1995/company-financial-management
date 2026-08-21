@@ -9,6 +9,7 @@ import CSVImportModal from '@/components/CSVImportModal';
 import { useAuth } from '@/context/AuthContext';
 import { exportToCSV } from '@/lib/csvExport';
 import { Plus, Edit2, Trash2, Calendar, User, DollarSign, Building, Users, Handshake, Upload } from 'lucide-react';
+import ConfirmationModal from '@/components/ConfirmationModal';
 
 interface Employee {
   id: string;
@@ -64,6 +65,26 @@ function EmployeesContent() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Confirmation Modal States
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    type?: 'danger' | 'warning' | 'info' | 'success';
+    onConfirm: () => void | Promise<void>;
+  }>({
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const triggerConfirm = (config: typeof confirmConfig) => {
+    setConfirmConfig(config);
+    setConfirmOpen(true);
+  };
 
   // CSV Import state
   const [showImportModal, setShowImportModal] = useState(false);
@@ -318,8 +339,7 @@ function EmployeesContent() {
     setShowEmployeeModal(true);
   };
 
-  const handleDeleteEmployee = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this employee?')) return;
+  const performDeleteEmployee = async (id: string) => {
     setError('');
     try {
       const res = await fetch(`/api/employees/${id}`, { method: 'DELETE' });
@@ -330,6 +350,16 @@ function EmployeesContent() {
     } catch (err: any) {
       setError(err.message);
     }
+  };
+
+  const handleDeleteEmployee = (id: string) => {
+    triggerConfirm({
+      title: 'Delete Staff Member',
+      message: 'Are you sure you want to delete this employee?',
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: () => performDeleteEmployee(id),
+    });
   };
 
   // Salary Submit
@@ -415,8 +445,7 @@ function EmployeesContent() {
     setShowSalaryModal(true);
   };
 
-  const handleDeleteSalary = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this salary payment? This is a soft-delete and will update aggregates instantly.')) return;
+  const performDeleteSalary = async (id: string) => {
     setError('');
     try {
       const res = await fetch(`/api/employees/salaries/${id}`, { method: 'DELETE' });
@@ -426,6 +455,16 @@ function EmployeesContent() {
     } catch (err: any) {
       setError(err.message);
     }
+  };
+
+  const handleDeleteSalary = (id: string) => {
+    triggerConfirm({
+      title: 'Delete Salary Payment',
+      message: 'Are you sure you want to delete this salary payment? This is a soft-delete and will update aggregates instantly.',
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: () => performDeleteSalary(id),
+    });
   };
 
   const formatCurrency = (val: any) => {
@@ -915,6 +954,16 @@ function EmployeesContent() {
             </div>
           </div>
         )}
+      <ConfirmationModal
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={confirmConfig.onConfirm}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        confirmText={confirmConfig.confirmText}
+        cancelText={confirmConfig.cancelText}
+        type={confirmConfig.type}
+      />
       </div>
     </SidebarLayout>
   );

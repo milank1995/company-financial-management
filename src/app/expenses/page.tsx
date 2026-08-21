@@ -9,6 +9,7 @@ import CSVImportModal from '@/components/CSVImportModal';
 import { useAuth } from '@/context/AuthContext';
 import { exportToCSV } from '@/lib/csvExport';
 import { Plus, Edit2, Trash2, Calendar, User, DollarSign, Tag, Upload } from 'lucide-react';
+import ConfirmationModal from '@/components/ConfirmationModal';
 
 interface Partner {
   id: string;
@@ -56,6 +57,26 @@ function ExpensesContent() {
 
   // CSV Import State
   const [showImportModal, setShowImportModal] = useState(false);
+
+  // Confirmation Modal States
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    type?: 'danger' | 'warning' | 'info' | 'success';
+    onConfirm: () => void | Promise<void>;
+  }>({
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const triggerConfirm = (config: typeof confirmConfig) => {
+    setConfirmConfig(config);
+    setConfirmOpen(true);
+  };
 
   // Categories list
   const categories = ['Office', 'Software', 'Utility', 'Travel', 'Marketing', 'Consulting', 'Other'];
@@ -288,6 +309,7 @@ function ExpensesContent() {
     setExpensePeriodYear(new Date().getFullYear());
     setExpenseDesc('');
     setExpensePartnerId('');
+    setError('');
   };
 
   const openNewExpense = () => {
@@ -298,6 +320,7 @@ function ExpensesContent() {
   };
 
   const openEditExpense = (exp: any) => {
+    setError('');
     setExpenseIdToEdit(exp.id);
     setExpenseAmount(Number(exp.amount).toString());
     setExpenseCategory(exp.category);
@@ -310,8 +333,7 @@ function ExpensesContent() {
     setShowModal(true);
   };
 
-  const handleDeleteExpense = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this expense? This is a soft-delete and will update reports instantly.')) return;
+  const performDeleteExpense = async (id: string) => {
     setError('');
     try {
       const res = await fetch(`/api/expenses/${id}`, { method: 'DELETE' });
@@ -321,6 +343,16 @@ function ExpensesContent() {
     } catch (err: any) {
       setError(err.message);
     }
+  };
+
+  const handleDeleteExpense = (id: string) => {
+    triggerConfirm({
+      title: 'Delete Expense',
+      message: 'Are you sure you want to delete this expense? This is a soft-delete and will update reports instantly.',
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: () => performDeleteExpense(id),
+    });
   };
 
   const formatCurrency = (val: any) => {
@@ -544,6 +576,13 @@ function ExpensesContent() {
               <h3 className="text-xl font-bold text-white">
                 {expenseIdToEdit ? 'Edit Expense Record' : 'Add Company Expense'}
               </h3>
+              
+              {error && (
+                <div className="rounded-lg bg-red-950/40 border border-red-500/50 p-3 text-xs text-red-200 animate-pulse">
+                  {error}
+                </div>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Description</label>
@@ -573,12 +612,13 @@ function ExpensesContent() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Paid By (Partner)</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Partner</label>
                   <select
                     value={expensePartnerId}
                     onChange={(e) => setExpensePartnerId(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-700 bg-slate-900 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   >
+                    <option value="" className="bg-slate-950 text-white">Paid by Company (No partner out-of-pocket)</option>
                     {partnersList.map((p) => (
                       <option key={p.id} value={p.id} className="bg-slate-950 text-white">
                         {p.name}
@@ -595,8 +635,8 @@ function ExpensesContent() {
                     required
                     value={expenseAmount}
                     onChange={(e) => setExpenseAmount(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-700 bg-slate-900 placeholder-slate-500 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    placeholder="120.00"
+                    className="w-full px-3 py-2 border border-slate-700 bg-slate-900 placeholder-slate-500 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    placeholder="2500.00"
                   />
                 </div>
 
@@ -661,6 +701,16 @@ function ExpensesContent() {
             </div>
           </div>
         )}
+      <ConfirmationModal
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={confirmConfig.onConfirm}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        confirmText={confirmConfig.confirmText}
+        cancelText={confirmConfig.cancelText}
+        type={confirmConfig.type}
+      />
       </div>
     </SidebarLayout>
   );

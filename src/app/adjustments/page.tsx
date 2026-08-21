@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import SidebarLayout from '@/components/SidebarLayout';
 import { useAuth } from '@/context/AuthContext';
 import { Plus, Edit2, Trash2, Calendar, User } from 'lucide-react';
+import ConfirmationModal from '@/components/ConfirmationModal';
 
 interface Partner {
   id: string;
@@ -28,6 +29,26 @@ export default function AdjustmentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Confirmation Modal States
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    type?: 'danger' | 'warning' | 'info' | 'success';
+    onConfirm: () => void | Promise<void>;
+  }>({
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const triggerConfirm = (config: typeof confirmConfig) => {
+    setConfirmConfig(config);
+    setConfirmOpen(true);
+  };
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
@@ -165,6 +186,7 @@ export default function AdjustmentsPage() {
     setAdjustmentPeriodMonth(new Date().getMonth() + 1);
     setAdjustmentPeriodYear(new Date().getFullYear());
     setAdjustmentDesc('');
+    setError('');
   };
 
   const openNewAdjustment = () => {
@@ -174,6 +196,7 @@ export default function AdjustmentsPage() {
   };
 
   const openEditAdjustment = (adj: any) => {
+    setError('');
     setAdjustmentIdToEdit(adj.id);
     setAdjustmentPartnerId(adj.partnerId);
     setAdjustmentAmount(Math.abs(Number(adj.amount)).toString());
@@ -186,8 +209,7 @@ export default function AdjustmentsPage() {
     setShowModal(true);
   };
 
-  const handleDeleteAdjustment = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this adjustment? This is a soft-delete and will update aggregates instantly.')) return;
+  const performDeleteAdjustment = async (id: string) => {
     setError('');
     try {
       const res = await fetch(`/api/adjustments/${id}`, { method: 'DELETE' });
@@ -197,6 +219,16 @@ export default function AdjustmentsPage() {
     } catch (err: any) {
       setError(err.message);
     }
+  };
+
+  const handleDeleteAdjustment = (id: string) => {
+    triggerConfirm({
+      title: 'Delete Adjustment',
+      message: 'Are you sure you want to delete this adjustment? This is a soft-delete and will update aggregates instantly.',
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: () => performDeleteAdjustment(id),
+    });
   };
 
   const formatCurrency = (val: any) => {
@@ -349,6 +381,13 @@ export default function AdjustmentsPage() {
               <h3 className="text-xl font-bold text-white">
                 {adjustmentIdToEdit ? 'Edit Adjustment Record' : 'Add Partner Adjustment'}
               </h3>
+              
+              {error && (
+                <div className="rounded-lg bg-red-950/40 border border-red-500/50 p-3 text-xs text-red-200 animate-pulse">
+                  {error}
+                </div>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Description</label>
@@ -466,6 +505,16 @@ export default function AdjustmentsPage() {
             </div>
           </div>
         )}
+      <ConfirmationModal
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={confirmConfig.onConfirm}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        confirmText={confirmConfig.confirmText}
+        cancelText={confirmConfig.cancelText}
+        type={confirmConfig.type}
+      />
       </div>
     </SidebarLayout>
   );

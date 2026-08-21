@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import SidebarLayout from '@/components/SidebarLayout';
 import { useAuth } from '@/context/AuthContext';
 import { Plus, Edit2, Trash2, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import ConfirmationModal from '@/components/ConfirmationModal';
 
 interface Partner {
   id: string;
@@ -33,6 +34,26 @@ export default function PartnersPage() {
   const [error, setError] = useState('');
   const abortControllerPartnersRef = useRef<AbortController | null>(null);
   const abortControllerSetupsRef = useRef<AbortController | null>(null);
+
+  // Confirmation Modal States
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    type?: 'danger' | 'warning' | 'info' | 'success';
+    onConfirm: () => void | Promise<void>;
+  }>({
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const triggerConfirm = (config: typeof confirmConfig) => {
+    setConfirmConfig(config);
+    setConfirmOpen(true);
+  };
   
   // Partner Form State
   const [showPartnerModal, setShowPartnerModal] = useState(false);
@@ -160,8 +181,7 @@ export default function PartnersPage() {
     setShowPartnerModal(true);
   };
 
-  const handleDeletePartner = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this partner?')) return;
+  const performDeletePartner = async (id: string) => {
     setError('');
     try {
       const res = await fetch(`/api/partners/${id}`, { method: 'DELETE' });
@@ -172,6 +192,16 @@ export default function PartnersPage() {
     } catch (err: any) {
       setError(err.message);
     }
+  };
+
+  const handleDeletePartner = (id: string) => {
+    triggerConfirm({
+      title: 'Delete Partner',
+      message: 'Are you sure you want to delete this partner?',
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: () => performDeletePartner(id),
+    });
   };
 
   // Handle Setup Submit
@@ -250,8 +280,7 @@ export default function PartnersPage() {
     setShowSetupModal(true);
   };
 
-  const handleDeleteSetup = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this ownership setup?')) return;
+  const performDeleteSetup = async (id: string) => {
     setError('');
     try {
       const res = await fetch(`/api/partners/ownership-setup/${id}`, { method: 'DELETE' });
@@ -261,6 +290,16 @@ export default function PartnersPage() {
     } catch (err: any) {
       setError(err.message);
     }
+  };
+
+  const handleDeleteSetup = (id: string) => {
+    triggerConfirm({
+      title: 'Delete Ownership Setup',
+      message: 'Are you sure you want to delete this ownership setup?',
+      confirmText: 'Delete',
+      type: 'danger',
+      onConfirm: () => performDeleteSetup(id),
+    });
   };
 
   const sumPercentages = () => {
@@ -568,6 +607,16 @@ export default function PartnersPage() {
             </div>
           </div>
         )}
+      <ConfirmationModal
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={confirmConfig.onConfirm}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        confirmText={confirmConfig.confirmText}
+        cancelText={confirmConfig.cancelText}
+        type={confirmConfig.type}
+      />
       </div>
     </SidebarLayout>
   );
